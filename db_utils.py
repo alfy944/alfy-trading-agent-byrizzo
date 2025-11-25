@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import os
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -387,29 +388,49 @@ def log_error(
     error_type = type(exc).__name__
     error_message = str(exc)
     tb_str = traceback.format_exc()
+    normalized_context = _normalize_for_json(context) if context is not None else None
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO errors (
-                    error_type,
-                    error_message,
-                    traceback,
-                    context,
-                    source
+    def _write_error() -> None:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO errors (
+                        error_type,
+                        error_message,
+                        traceback,
+                        context,
+                        source
+                    )
+                    VALUES (%s, %s, %s, %s, %s);
+                    """,
+                    (
+                        error_type,
+                        error_message,
+                        tb_str,
+                        Json(normalized_context)
+                        if normalized_context is not None
+                        else None,
+                        source,
+                    ),
                 )
-                VALUES (%s, %s, %s, %s, %s);
-                """,
-                (
-                    error_type,
-                    error_message,
-                    tb_str,
-                    Json(context) if context is not None else None,
-                    source,
-                ),
+            conn.commit()
+
+    try:
+        _write_error()
+    except psycopg2.errors.UndefinedTable:
+        try:
+            init_db()
+            _write_error()
+        except Exception as db_exc:  # pragma: no cover - best effort logging
+            print(
+                f"Impossibile creare o scrivere nella tabella errors: {db_exc}",
+                file=sys.stderr,
             )
-        conn.commit()
+    except Exception as db_exc:  # pragma: no cover - best effort logging
+        print(
+            f"Impossibile loggare errore nel database: {db_exc}", file=sys.stderr
+        )
 
 
 
