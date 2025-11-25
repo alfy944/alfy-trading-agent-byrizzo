@@ -88,4 +88,4 @@ def previsione_trading_agent(prompt):
         "reasoning.encrypted_content",
         "web_search_call.action.sources"
     ])
-    return json.loads(response.output_text)
+    return(json.loads(response.output_text))
