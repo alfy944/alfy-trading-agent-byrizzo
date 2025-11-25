@@ -53,7 +53,18 @@ try:
 
     print("L'agente sta decidendo la sua azione!")
     out = previsione_trading_agent(system_prompt)
-    execution_result = bot.execute_signal(out)
+
+    def _extract_atr(symbol: str, indicators_payload):
+        try:
+            for payload in indicators_payload:
+                if payload.get("ticker", "").upper() == symbol.upper():
+                    return payload.get("longer_term_15m", {}).get("atr_14_current")
+        except Exception:
+            return None
+        return None
+
+    atr_value = _extract_atr(out.get("symbol"), indicators_json)
+    bot.execute_signal(out, atr_value=atr_value)
 
     risk_order_id = None
     if isinstance(execution_result, dict):
