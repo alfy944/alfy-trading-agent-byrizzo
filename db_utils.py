@@ -463,60 +463,71 @@ def log_account_status(account_status: Dict[str, Any]) -> int:
 
     open_positions_data = account_status.get("open_positions") or []
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            # Inserisci lo snapshot dell'account
-            cur.execute(
-                """
-                INSERT INTO account_snapshots (balance_usd, raw_payload)
-                VALUES (%s, %s)
-                RETURNING id;
-                """,
-                (balance, Json(account_status)),
-            )
-            snapshot_id = cur.fetchone()[0]
-
-            # Inserisci una riga per ciascuna posizione aperta
-            for pos in open_positions_data:
-                symbol = pos.get("symbol")
-                side = pos.get("side")
-                size = pos.get("size")
-                entry_price = pos.get("entry_price")
-                mark_price = pos.get("mark_price")
-                pnl_usd = pos.get("pnl_usd")
-                leverage = pos.get("leverage")
-
+    def _write_snapshot() -> int:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Inserisci lo snapshot dell'account
                 cur.execute(
                     """
-                    INSERT INTO open_positions (
-                        snapshot_id,
-                        symbol,
-                        side,
-                        size,
-                        entry_price,
-                        mark_price,
-                        pnl_usd,
-                        leverage,
-                        raw_payload
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    INSERT INTO account_snapshots (balance_usd, raw_payload)
+                    VALUES (%s, %s)
+                    RETURNING id;
                     """,
-                    (
-                        snapshot_id,
-                        symbol,
-                        side,
-                        size,
-                        entry_price,
-                        mark_price,
-                        pnl_usd,
-                        leverage,
-                        Json(pos),
-                    ),
+                    (balance, Json(account_status)),
                 )
+                snapshot_id = cur.fetchone()[0]
 
-        conn.commit()
+                # Inserisci una riga per ciascuna posizione aperta
+                for pos in open_positions_data:
+                    symbol = pos.get("symbol")
+                    side = pos.get("side")
+                    size = pos.get("size")
+                    entry_price = pos.get("entry_price")
+                    mark_price = pos.get("mark_price")
+                    pnl_usd = pos.get("pnl_usd")
+                    leverage = pos.get("leverage")
 
-    return snapshot_id
+                    cur.execute(
+                        """
+                        INSERT INTO open_positions (
+                            snapshot_id,
+                            symbol,
+                            side,
+                            size,
+                            entry_price,
+                            mark_price,
+                            pnl_usd,
+                            leverage,
+                            raw_payload
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+                        """,
+                        (
+                            snapshot_id,
+                            symbol,
+                            side,
+                            size,
+                            entry_price,
+                            mark_price,
+                            pnl_usd,
+                            leverage,
+                            Json(pos),
+                        ),
+                    )
+
+            conn.commit()
+
+        return snapshot_id
+
+    try:
+        return _write_snapshot()
+    except psycopg2.errors.UndefinedTable:
+        init_db()
+        try:
+            return _write_snapshot()
+        except Exception:
+            # Se fallisce ancora, propaga l'errore originale per non nascondere problemi reali
+            raise
 
 
 def log_bot_operation(
