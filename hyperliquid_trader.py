@@ -98,6 +98,19 @@ class HyperLiquidTrader:
                 return perp
         return None
 
+    def _get_symbol_meta(self, symbol: str) -> Optional[Dict[str, Any]]:
+        for perp in self.meta["universe"]:
+            if perp["name"] == symbol:
+                return perp
+        return None
+
+    def _round_price(self, price: Decimal, symbol: str) -> float:
+        """Arrotonda il prezzo in base ai pxDecimals del simbolo."""
+        symbol_info = self._get_symbol_meta(symbol)
+        px_decimals = int(symbol_info.get("pxDecimals", 2)) if symbol_info else 2
+        quantizer = Decimal(10) ** -px_decimals
+        return float(price.quantize(quantizer, rounding=ROUND_DOWN))
+
     def _round_size(self, size: Decimal, decimals: int) -> float:
         """
         Hyperliquid accetta massimo 8 decimali.
@@ -111,12 +124,11 @@ class HyperLiquidTrader:
         return float(fmt.format(size))
 
     def _get_open_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Recupera la posizione aperta (se esiste) per un simbolo."""
         user_state = self.info.user_state(self.account_address)
-        for position in user_state.get("assetPositions", []):
-            pos = position.get("position") if isinstance(position, dict) else position
-            if not pos:
-                continue
-            if pos.get("coin") != symbol:
+        for p in user_state.get("assetPositions", []):
+            pos = p.get("position", p)
+            if not pos or pos.get("coin") != symbol:
                 continue
 
             try:
@@ -127,6 +139,129 @@ class HyperLiquidTrader:
             if size != 0:
                 return pos
         return None
+
+    def _compute_risk_levels(
+        self,
+        direction: str,
+        entry_price: Decimal,
+        current_price: Decimal,
+        atr_value: Decimal,
+    ) -> Dict[str, float]:
+        """
+        Calcola stop loss e take profit basati su ATR.
+        """
+        atr = atr_value
+        stop_loss = entry_price
+        take_profit = entry_price
+
+        if direction == "long":
+            stop_loss = entry_price - atr * self.atr_sl_multiplier
+            take_profit = entry_price + atr * self.atr_tp_multiplier
+
+            if current_price - entry_price >= atr * self.atr_break_even_threshold:
+                stop_loss = max(stop_loss, entry_price)
+                trailing_candidate = current_price - atr * self.atr_trailing_multiplier
+                stop_loss = max(stop_loss, trailing_candidate)
+        else:
+            stop_loss = entry_price + atr * self.atr_sl_multiplier
+            take_profit = entry_price - atr * self.atr_tp_multiplier
+
+            if entry_price - current_price >= atr * self.atr_break_even_threshold:
+                stop_loss = min(stop_loss, entry_price)
+                trailing_candidate = current_price + atr * self.atr_trailing_multiplier
+                stop_loss = min(stop_loss, trailing_candidate)
+
+        return {
+            "stop_loss": float(stop_loss),
+            "take_profit": float(take_profit),
+        }
+
+    def _place_trigger_order(
+        self,
+        symbol: str,
+        is_buy: bool,
+        size: float,
+        trigger_px: float,
+        tpsl: str,
+    ) -> Any:
+        """Inserisce un ordine trigger reduce-only (SL o TP)."""
+        order_type = {
+            "trigger": {
+                "triggerPx": trigger_px,
+                "isMarket": True,
+                "tpsl": tpsl,
+            }
+        }
+
+        return self.exchange.order(
+            symbol,
+            is_buy,
+            size,
+            trigger_px,
+            order_type=order_type,
+            reduce_only=True,
+        )
+
+    def apply_risk_management(
+        self,
+        symbol: str,
+        direction: str,
+        entry_price: Decimal,
+        current_price: Decimal,
+        atr_value: Optional[Decimal],
+    ) -> None:
+        """
+        Applica stop loss, take profit, trailing stop e break-even basati su ATR.
+        """
+        if atr_value is None or atr_value <= 0:
+            print(f"⚠️ Nessun ATR valido disponibile per {symbol}: skip gestione rischio.")
+            return
+
+        position = self._get_open_position(symbol)
+        if not position:
+            print(f"⚠️ Nessuna posizione aperta trovata per {symbol}: impossibile inserire SL/TP.")
+            return
+
+        size = abs(float(position.get("szi", 0)))
+        if size == 0:
+            print(f"⚠️ Size posizione nulla per {symbol}: skip SL/TP.")
+            return
+
+        levels = self._compute_risk_levels(direction, entry_price, current_price, atr_value)
+        stop_loss_px = self._round_price(Decimal(str(levels["stop_loss"])), symbol)
+        take_profit_px = self._round_price(Decimal(str(levels["take_profit"])), symbol)
+
+        # Per chiudere un long serve un ordine di vendita, per uno short un ordine di acquisto
+        is_buy_close = position.get("szi", 0) < 0
+
+        print(
+            f"🛡️ Inserimento SL/TP per {symbol}: SL={stop_loss_px}, TP={take_profit_px}, size={size}"
+        )
+
+        try:
+            sl_res = self._place_trigger_order(
+                symbol=symbol,
+                is_buy=is_buy_close,
+                size=size,
+                trigger_px=stop_loss_px,
+                tpsl="sl",
+            )
+            print(f"📉 Stop loss inserito: {sl_res}")
+        except Exception as e:
+            print(f"❌ Errore inserendo stop loss per {symbol}: {e}")
+
+        try:
+            tp_res = self._place_trigger_order(
+                symbol=symbol,
+                is_buy=is_buy_close,
+                size=size,
+                trigger_px=take_profit_px,
+                tpsl="tp",
+            )
+            print(f"📈 Take profit inserito: {tp_res}")
+        except Exception as e:
+            print(f"❌ Errore inserendo take profit per {symbol}: {e}")
+
 
     # ----------------------------------------------------------------------
     #                        GESTIONE LEVA
