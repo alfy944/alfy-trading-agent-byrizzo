@@ -50,13 +50,24 @@ try:
     with open('system_prompt.txt', 'r') as f:
         system_prompt = f.read()
     system_prompt = system_prompt.format(portfolio_data, msg_info)
-        
+
     print("L'agente sta decidendo la sua azione!")
     out = previsione_trading_agent(system_prompt)
-    bot.execute_signal(out)
+    execution_result = bot.execute_signal(out)
 
+    risk_order_id = None
+    if isinstance(execution_result, dict):
+        risk_order_id = execution_result.get("risk_order_id")
 
-    op_id = db_utils.log_bot_operation(out, system_prompt=system_prompt, indicators=indicators_json, news_text=news_txt, sentiment=sentiment_json, forecasts=forecasts_json)
+    op_id = db_utils.log_bot_operation(
+        out,
+        system_prompt=system_prompt,
+        indicators=indicators_json,
+        news_text=news_txt,
+        sentiment=sentiment_json,
+        forecasts=forecasts_json,
+        risk_order_id=risk_order_id,
+    )
     print(f"[db_utils] Operazione inserita con id={op_id}")
 
 except Exception as e:

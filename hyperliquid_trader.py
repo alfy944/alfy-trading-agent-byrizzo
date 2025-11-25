@@ -1,6 +1,8 @@
-import json
 from decimal import Decimal, ROUND_DOWN
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import traceback
+
+import db_utils
 
 import eth_account
 from eth_account.signers.local import LocalAccount
@@ -151,8 +153,6 @@ class HyperLiquidTrader:
     #                        ESECUZIONE SEGNALE AI
     # ----------------------------------------------------------------------
     def execute_signal(self, order_json: Dict[str, Any]) -> Dict[str, Any]:
-        from decimal import Decimal, ROUND_DOWN
-
         self._validate_order_input(order_json)
 
         op = order_json["operation"]
@@ -163,11 +163,12 @@ class HyperLiquidTrader:
 
         if op == "hold":
             print(f"[HyperLiquidTrader] HOLD — nessuna azione per {symbol}.")
-            return {"status": "hold", "message": "No action taken."}
+            return {"status": "hold", "message": "No action taken.", "risk_order_id": None}
 
         if op == "close":
             print(f"[HyperLiquidTrader] Market CLOSE per {symbol}")
-            return self.exchange.market_close(symbol)
+            close_res = self.exchange.market_close(symbol)
+            return {"status": "close", "order_response": close_res, "risk_order_id": None}
 
         # OPEN --------------------------------------------------------
         # Prima di aprire la posizione, imposta la leva desiderata
@@ -257,7 +258,117 @@ class HyperLiquidTrader:
             0.01
         )
 
-        return res
+        stop_loss_px = order_json.get("stop_loss_px")
+        take_profit_px = order_json.get("take_profit_px")
+        atr_used = order_json.get("atr_used")
+
+        risk_result: Optional[Dict[str, Any]] = None
+        risk_order_id: Optional[int] = None
+        if stop_loss_px is not None or take_profit_px is not None:
+            risk_result = self.apply_risk_management(
+                symbol=symbol,
+                side=direction,
+                size=size_float,
+                stop_loss_px=stop_loss_px,
+                take_profit_px=take_profit_px,
+                atr_used=atr_used,
+            )
+            risk_order_id = risk_result.get("risk_order_id") if isinstance(risk_result, dict) else None
+
+        return {
+            "status": "open",
+            "order_response": res,
+            "risk_management": risk_result,
+            "risk_order_id": risk_order_id,
+        }
+
+    # ----------------------------------------------------------------------
+    #                        GESTIONE DEL RISCHIO
+    # ----------------------------------------------------------------------
+    def _place_trigger_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        size: float,
+        stop_loss_px: Optional[Any] = None,
+        take_profit_px: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Simula la creazione di ordini stop loss / take profit.
+
+        Nota: qui si potrebbe integrare la chiamata reale all'API dell'exchange.
+        Al momento restituisce un payload descrittivo utile ai log.
+        """
+
+        trigger_summary: Dict[str, Any] = {}
+
+        if stop_loss_px is not None:
+            trigger_summary["stop_loss"] = {
+                "action": "sell" if side == "long" else "buy",
+                "price": float(stop_loss_px),
+                "size": size,
+                "status": "pending",
+            }
+
+        if take_profit_px is not None:
+            trigger_summary["take_profit"] = {
+                "action": "sell" if side == "long" else "buy",
+                "price": float(take_profit_px),
+                "size": size,
+                "status": "pending",
+            }
+
+        if not trigger_summary:
+            trigger_summary["note"] = "No trigger orders requested"
+
+        return trigger_summary
+
+    def apply_risk_management(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        size: float,
+        stop_loss_px: Optional[Any] = None,
+        take_profit_px: Optional[Any] = None,
+        atr_used: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Applica il risk management e salva i risultati in DB."""
+
+        stop_loss_value = stop_loss_px
+        take_profit_value = take_profit_px
+
+        try:
+            trigger_response = self._place_trigger_order(
+                symbol=symbol,
+                side=side,
+                size=size,
+                stop_loss_px=stop_loss_value,
+                take_profit_px=take_profit_value,
+            )
+        except Exception as exc:  # pragma: no cover - logging fallback
+            trigger_response = {
+                "status": "error",
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            }
+
+        risk_order_id = db_utils.log_risk_order(
+            symbol=symbol,
+            side=side,
+            size=size,
+            stop_px=stop_loss_value,
+            tp_px=take_profit_value,
+            atr_used=atr_used,
+            exchange_response=trigger_response,
+        )
+
+        return {
+            "risk_order_id": risk_order_id,
+            "stop_loss_px": stop_loss_value,
+            "take_profit_px": take_profit_value,
+            "exchange_response": trigger_response,
+        }
 
     # ----------------------------------------------------------------------
     #                           STATO ACCOUNT

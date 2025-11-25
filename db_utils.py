@@ -155,6 +155,19 @@ CREATE TABLE IF NOT EXISTS forecasts_contexts (
     raw                     JSONB
 );
 
+CREATE TABLE IF NOT EXISTS risk_orders (
+    id                  BIGSERIAL PRIMARY KEY,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    symbol              TEXT NOT NULL,
+    side                TEXT,
+    size                NUMERIC(30, 10),
+    stop_px             NUMERIC(30, 10),
+    tp_px               NUMERIC(30, 10),
+    atr_used            NUMERIC(30, 10),
+    exchange_response   JSONB,
+    timestamp           TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bot_operations (
     id                  BIGSERIAL PRIMARY KEY,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -164,6 +177,7 @@ CREATE TABLE IF NOT EXISTS bot_operations (
     direction           TEXT,
     target_portion_of_balance NUMERIC(10, 4),
     leverage            NUMERIC(10, 4),
+    risk_order_id       BIGINT REFERENCES risk_orders(id),
     raw_payload         JSONB NOT NULL
 );
 
@@ -182,6 +196,7 @@ CREATE TABLE IF NOT EXISTS errors (
 
 CREATE INDEX IF NOT EXISTS idx_errors_created_at
     ON errors(created_at);
+
 """
 
 
@@ -275,6 +290,22 @@ BEGIN
         ALTER COLUMN forecasts DROP NOT NULL;
     END IF;
 END$$;
+
+CREATE TABLE IF NOT EXISTS risk_orders (
+    id                  BIGSERIAL PRIMARY KEY,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    symbol              TEXT NOT NULL,
+    side                TEXT,
+    size                NUMERIC(30, 10),
+    stop_px             NUMERIC(30, 10),
+    tp_px               NUMERIC(30, 10),
+    atr_used            NUMERIC(30, 10),
+    exchange_response   JSONB,
+    timestamp           TIMESTAMPTZ NOT NULL
+);
+
+ALTER TABLE bot_operations
+    ADD COLUMN IF NOT EXISTS risk_order_id BIGINT REFERENCES risk_orders(id);
 """
 
 
@@ -506,6 +537,7 @@ def log_bot_operation(
     news_text: Optional[str] = None,
     sentiment: Optional[Any] = None,
     forecasts: Optional[Any] = None,
+    risk_order_id: Optional[int] = None,
 ) -> int:
     """Logga un'operazione del bot e tutti gli input associati.
 
@@ -516,7 +548,7 @@ def log_bot_operation(
         - `news_contexts` (news_text)
         - `sentiment_contexts` (sentiment)
         - `forecasts_contexts` (forecasts)
-    - Crea una riga in `bot_operations` collegata via `context_id`.
+    - Crea una riga in `bot_operations` collegata via `context_id` (e opzionalmente `risk_order_id`).
 
     Parametri:
     - operation_payload: dict con i campi principali dell'operazione, es:
@@ -795,9 +827,10 @@ def log_bot_operation(
                     direction,
                     target_portion_of_balance,
                     leverage,
+                    risk_order_id,
                     raw_payload
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id;
                 """,
                 (
@@ -807,6 +840,7 @@ def log_bot_operation(
                     direction,
                     target_portion_of_balance,
                     leverage,
+                    risk_order_id,
                     Json(operation_payload),
                 ),
             )
@@ -815,6 +849,56 @@ def log_bot_operation(
         conn.commit()
 
     return op_id
+
+
+def log_risk_order(
+    *,
+    symbol: str,
+    side: Optional[str],
+    size: Optional[Any],
+    stop_px: Optional[Any],
+    tp_px: Optional[Any],
+    atr_used: Optional[Any] = None,
+    exchange_response: Optional[Any] = None,
+    order_timestamp: Optional[datetime] = None,
+) -> int:
+    """Inserisce una riga nella tabella `risk_orders` e restituisce l'ID."""
+
+    timestamp = order_timestamp or _now_utc()
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO risk_orders (
+                    symbol,
+                    side,
+                    size,
+                    stop_px,
+                    tp_px,
+                    atr_used,
+                    exchange_response,
+                    timestamp
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id;
+                """,
+                (
+                    symbol,
+                    side,
+                    _to_plain_number(size),
+                    _to_plain_number(stop_px),
+                    _to_plain_number(tp_px),
+                    _to_plain_number(atr_used),
+                    Json(_normalize_for_json(exchange_response)) if exchange_response is not None else None,
+                    timestamp,
+                ),
+            )
+            risk_id = cur.fetchone()[0]
+
+        conn.commit()
+
+    return risk_id
 
 
 
