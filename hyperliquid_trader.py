@@ -1,6 +1,8 @@
+import asyncio
 import json
+import random
 from decimal import Decimal, ROUND_DOWN
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import eth_account
 from eth_account.signers.local import LocalAccount
@@ -8,6 +10,7 @@ from eth_account.signers.local import LocalAccount
 from hyperliquid.info import Info
 from hyperliquid.exchange import Exchange
 from hyperliquid.utils import constants
+from hyperliquid.utils import types
 
 
 class HyperLiquidTrader:
@@ -32,6 +35,10 @@ class HyperLiquidTrader:
 
         # cache meta per tick-size e min-size
         self.meta = self.info.meta()
+
+        # stato trailing stop
+        self.last_trailing_stops: Dict[str, Dict[str, Any]] = {}
+        self._trailing_stop_running: Dict[str, bool] = {}
 
     def _to_hl_size(self, size_decimal: Decimal) -> str:
         # HL accetta max 8 decimali
@@ -79,6 +86,12 @@ class HyperLiquidTrader:
                 return Decimal(str(perp["szDecimals"]))
         return Decimal("0.00000001")  # fallback a 1e-8
 
+    def _get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:
+        for perp in self.meta["universe"]:
+            if perp.get("name") == symbol:
+                return perp
+        return None
+
     def _round_size(self, size: Decimal, decimals: int) -> float:
         """
         Hyperliquid accetta massimo 8 decimali.
@@ -90,6 +103,24 @@ class HyperLiquidTrader:
         # poi count of decimals per il tick
         fmt = f"{{0:.{decimals}f}}"
         return float(fmt.format(size))
+
+    def _get_open_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+        user_state = self.info.user_state(self.account_address)
+        for position in user_state.get("assetPositions", []):
+            pos = position.get("position") if isinstance(position, dict) else position
+            if not pos:
+                continue
+            if pos.get("coin") != symbol:
+                continue
+
+            try:
+                size = Decimal(str(pos.get("szi", 0)))
+            except Exception:
+                size = Decimal("0")
+
+            if size != 0:
+                return pos
+        return None
 
     # ----------------------------------------------------------------------
     #                        GESTIONE LEVA
@@ -146,6 +177,100 @@ class HyperLiquidTrader:
         except Exception as e:
             print(f"❌ Errore impostando leva per {symbol}: {e}")
             return {"status": "error", "error": str(e)}
+
+    # ----------------------------------------------------------------------
+    #                        TRAILING STOP DINAMICI
+    # ----------------------------------------------------------------------
+    def update_trailing_stops(self, symbol: str, position: Dict[str, Any], atr_value: Decimal) -> Dict[str, Any]:
+        """Aggiorna il trailing stop per una posizione aperta"""
+        atr_decimal = Decimal(str(atr_value))
+        mids = self.info.all_mids()
+        current_px = Decimal(str(mids.get(symbol, position.get("entryPx", "0"))))
+        size_signed = Decimal(str(position.get("szi", 0)))
+        if size_signed == 0:
+            return {"status": "skipped", "reason": "no position size"}
+
+        is_long = size_signed > 0
+        stop_px = current_px - atr_decimal if is_long else current_px + atr_decimal
+
+        last_stop = self.last_trailing_stops.get(symbol)
+        if last_stop:
+            last_stop_price = Decimal(str(last_stop.get("price", "0")))
+            if stop_px == last_stop_price:
+                return {"status": "skipped", "reason": "stop unchanged"}
+
+        symbol_info = self._get_symbol_info(symbol)
+        sz_decimals = int(symbol_info.get("szDecimals", 8)) if symbol_info else 8
+        size = self._round_size(size_signed.copy_abs(), sz_decimals)
+
+        order_type = {
+            "trigger": {
+                "triggerPx": float(stop_px),
+                "isMarket": True,
+                "tpsl": "sl",
+            }
+        }
+
+        new_cloid = types.Cloid.from_int(random.getrandbits(128))
+
+        if last_stop and last_stop.get("cloid"):
+            try:
+                self.exchange.bulk_cancel_by_cloid([
+                    {"coin": symbol, "cloid": last_stop["cloid"]}
+                ])
+            except Exception as e:
+                print(f"⚠️ Errore cancellando il trailing precedente per {symbol}: {e}")
+
+        is_buy = not is_long
+        try:
+            response = self.exchange.order(
+                name=symbol,
+                is_buy=is_buy,
+                sz=size,
+                limit_px=0.0,
+                order_type=order_type,
+                reduce_only=True,
+                cloid=new_cloid,
+            )
+        except Exception as e:
+            print(f"❌ Errore impostando trailing stop per {symbol}: {e}")
+            return {"status": "error", "error": str(e)}
+
+        self.last_trailing_stops[symbol] = {
+            "price": stop_px,
+            "cloid": new_cloid,
+            "response": response,
+        }
+
+        return {"status": "ok", "stop_px": float(stop_px), "cloid": new_cloid}
+
+    async def trailing_stop_loop(self, symbol: str, atr_value: Decimal, poll_interval: float = 2.0):
+        """Loop asincrono per aggiornare i trailing stop finché la posizione resta aperta"""
+        atr_decimal = Decimal(str(atr_value))
+        self._trailing_stop_running[symbol] = True
+
+        while self._trailing_stop_running.get(symbol, False):
+            position = self._get_open_position(symbol)
+            if not position:
+                print(f"⏹️ Posizione chiusa per {symbol}, interrompo trailing loop")
+                self._trailing_stop_running[symbol] = False
+                self.last_trailing_stops.pop(symbol, None)
+                break
+
+            mids = self.info.all_mids()
+            current_px = Decimal(str(mids.get(symbol, position.get("entryPx", "0"))))
+            last_stop = self.last_trailing_stops.get(symbol)
+
+            should_refresh = last_stop is None
+            if last_stop:
+                last_stop_price = Decimal(str(last_stop.get("price", "0")))
+                if abs(current_px - last_stop_price) >= atr_decimal:
+                    should_refresh = True
+
+            if should_refresh:
+                self.update_trailing_stops(symbol, position, atr_decimal)
+
+            await asyncio.sleep(poll_interval)
 
     # ----------------------------------------------------------------------
     #                        ESECUZIONE SEGNALE AI
