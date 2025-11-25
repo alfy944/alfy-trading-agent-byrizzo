@@ -416,11 +416,12 @@ class HyperLiquidTrader:
 
         if op == "hold":
             print(f"[HyperLiquidTrader] HOLD — nessuna azione per {symbol}.")
-            return {"status": "hold", "message": "No action taken."}
+            return {"status": "hold", "message": "No action taken.", "risk_order_id": None}
 
         if op == "close":
             print(f"[HyperLiquidTrader] Market CLOSE per {symbol}")
-            return self.exchange.market_close(symbol)
+            close_res = self.exchange.market_close(symbol)
+            return {"status": "close", "order_response": close_res, "risk_order_id": None}
 
         # OPEN --------------------------------------------------------
         # Prima di aprire la posizione, imposta la leva desiderata
