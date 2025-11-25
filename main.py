@@ -17,6 +17,8 @@ load_dotenv()
 # Collegamento ad Hyperliquid
 TESTNET = True   # True = testnet, False = mainnet (occhio!)
 VERBOSE = True    # stampa informazioni extra
+PRIVATE_KEY = os.getenv("PRIVATE_KEY")
+WALLET_ADDRESS = os.getenv("WALLET_ADDRESS")
 
 
 def _normalize_private_key(key: str) -> str:
@@ -63,116 +65,98 @@ def _normalize_wallet_address(address: str) -> str:
     return "0x" + addr_body if not addr_clean.startswith("0x") else addr_clean
 
 
-def main():
-    private_key = os.getenv("PRIVATE_KEY")
-    wallet_address = os.getenv("WALLET_ADDRESS")
+PRIVATE_KEY = _normalize_private_key(PRIVATE_KEY)
+WALLET_ADDRESS = _normalize_wallet_address(WALLET_ADDRESS)
 
-    try:
-        private_key = _normalize_private_key(private_key)
-        wallet_address = _normalize_wallet_address(wallet_address)
-    except Exception as cfg_error:
-        print(f"[config] {cfg_error}")
-        return 1
+# Assicurati che le tabelle esistano prima di qualsiasi operazione di logging
+db_utils.init_db()
 
-    # Assicurati che le tabelle esistano prima di qualsiasi operazione di logging
-    try:
-        db_utils.init_db()
-    except Exception as init_error:
-        print(f"[db_utils] Impossibile inizializzare il database: {init_error}")
-        return 1
+# Valori di default in modo da evitare UnboundLocalError nel blocco di eccezione
+system_prompt = ""
+tickers = []
+indicators_json = None
+news_txt = ""
+sentiment_json = None
+forecasts_json = None
+account_status = {}
+try:
+    bot = HyperLiquidTrader(
+        secret_key=PRIVATE_KEY,
+        account_address=WALLET_ADDRESS,
+        testnet=TESTNET
+    )
 
-    # Valori di default in modo da evitare UnboundLocalError nel blocco di eccezione
-    system_prompt = ""
-    tickers = []
-    indicators_json = None
-    news_txt = ""
-    sentiment_json = None
-    forecasts_json = None
-    account_status = {}
+    # Calcolo delle informazioni in input per Ticker
+    tickers = ['BTC', 'ETH', 'SOL']
+    indicators_txt, indicators_json  = analyze_multiple_tickers(tickers)
+    news_txt = fetch_latest_news()
+    # whale_alerts_txt = format_whale_alerts_to_string()
+    sentiment_txt, sentiment_json  = get_sentiment()
+    forecasts_txt, forecasts_json = get_crypto_forecasts()
 
-    try:
-        bot = HyperLiquidTrader(
-            secret_key=private_key,
-            account_address=wallet_address,
-            testnet=TESTNET
-        )
 
-        # Calcolo delle informazioni in input per Ticker
-        tickers = ['BTC', 'ETH', 'SOL']
-        indicators_txt, indicators_json = analyze_multiple_tickers(tickers)
-        news_txt = fetch_latest_news()
-        # whale_alerts_txt = format_whale_alerts_to_string()
-        sentiment_txt, sentiment_json = get_sentiment()
-        forecasts_txt, forecasts_json = get_crypto_forecasts()
+    msg_info=f"""<indicatori>\n{indicators_txt}\n</indicatori>\n\n
+    <news>\n{news_txt}</news>\n\n
+    <sentiment>\n{sentiment_txt}\n</sentiment>\n\n
+    <forecast>\n{forecasts_txt}\n</forecast>\n\n"""
 
-        msg_info = f"""<indicatori>\n{indicators_txt}\n</indicatori>\n\n
-        <news>\n{news_txt}</news>\n\n
-        <sentiment>\n{sentiment_txt}\n</sentiment>\n\n
-        <forecast>\n{forecasts_txt}\n</forecast>\n\n"""
+    account_status = bot.get_account_status()
+    portfolio_data = f"{json.dumps(account_status)}"
+    snapshot_id = db_utils.log_account_status(account_status)
+    print(f"[db_utils] Operazione inserita con id={snapshot_id}")
 
-        account_status = bot.get_account_status()
-        portfolio_data = f"{json.dumps(account_status)}"
-        snapshot_id = db_utils.log_account_status(account_status)
-        print(f"[db_utils] Operazione inserita con id={snapshot_id}")
 
-        # Creating System prompt
-        with open('system_prompt.txt', 'r') as f:
-            system_prompt = f.read()
-        system_prompt = system_prompt.format(portfolio_data, msg_info)
+    # Creating System prompt
+    with open('system_prompt.txt', 'r') as f:
+        system_prompt = f.read()
+    system_prompt = system_prompt.format(portfolio_data, msg_info)
 
-        print("L'agente sta decidendo la sua azione!")
-        out = previsione_trading_agent(system_prompt)
+    print("L'agente sta decidendo la sua azione!")
+    out = previsione_trading_agent(system_prompt)
 
-        def _extract_atr(symbol: str, indicators_payload):
-            try:
-                for payload in indicators_payload:
-                    if payload.get("ticker", "").upper() == symbol.upper():
-                        return payload.get("longer_term_15m", {}).get("atr_14_current")
-            except Exception:
-                return None
-            return None
-
-        atr_value = _extract_atr(out.get("symbol"), indicators_json)
-        execution_result = bot.execute_signal(out, atr_value=atr_value)
-
-        risk_order_id = None
-        if isinstance(execution_result, dict):
-            risk_order_id = execution_result.get("risk_order_id")
-
-        op_id = db_utils.log_bot_operation(
-            out,
-            system_prompt=system_prompt,
-            indicators=indicators_json,
-            news_text=news_txt,
-            sentiment=sentiment_json,
-            forecasts=forecasts_json,
-            risk_order_id=risk_order_id,
-        )
-        print(f"[db_utils] Operazione inserita con id={op_id}")
-
-    except Exception as e:
+    def _extract_atr(symbol: str, indicators_payload):
         try:
-            db_utils.log_error(
-                e,
-                context={
-                    "prompt": system_prompt,
-                    "tickers": tickers,
-                    "indicators": indicators_json,
-                    "news": news_txt,
-                    "sentiment": sentiment_json,
-                    "forecasts": forecasts_json,
-                    "balance": account_status,
-                },
-                source="trading_agent",
-            )
-        except Exception as log_exc:
-            print(f"[db_utils] Impossibile registrare l'errore: {log_exc}")
+            for payload in indicators_payload:
+                if payload.get("ticker", "").upper() == symbol.upper():
+                    return payload.get("longer_term_15m", {}).get("atr_14_current")
+        except Exception:
+            return None
+        return None
 
-        print(f"An error occurred: {e}")
-        return 1
+    atr_value = _extract_atr(out.get("symbol"), indicators_json)
+    execution_result = bot.execute_signal(out, atr_value=atr_value)
 
-    return 0
+    risk_order_id = None
+    if isinstance(execution_result, dict):
+        risk_order_id = execution_result.get("risk_order_id")
 
+    op_id = db_utils.log_bot_operation(
+        out,
+        system_prompt=system_prompt,
+        indicators=indicators_json,
+        news_text=news_txt,
+        sentiment=sentiment_json,
+        forecasts=forecasts_json,
+        risk_order_id=risk_order_id,
+    )
+    print(f"[db_utils] Operazione inserita con id={op_id}")
 
-if __name__ == "__main__":
-    sys.exit(main())
+except Exception as e:
+    try:
+        db_utils.log_error(
+            e,
+            context={
+                "prompt": system_prompt,
+                "tickers": tickers,
+                "indicators": indicators_json,
+                "news": news_txt,
+                "sentiment": sentiment_json,
+                "forecasts": forecasts_json,
+                "balance": account_status,
+            },
+            source="trading_agent",
+        )
+    except Exception as log_exc:
+        print(f"[db_utils] Impossibile registrare l'errore: {log_exc}")
+
+    print(f"An error occurred: {e}")
