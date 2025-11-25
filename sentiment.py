@@ -92,4 +92,4 @@ def get_sentiment() -> str:
             f"  Timestamp: {sentiment_data['timestamp']}"
         ), sentiment_data
     else:
-        return "Impossibile recuperare il sentiment del mercato."
+        return "Impossibile recuperare il sentiment del mercato.", None

@@ -9,6 +9,7 @@ import os
 import json
 import db_utils
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # Collegamento ad Hyperliquid
@@ -19,6 +20,15 @@ WALLET_ADDRESS = os.getenv("WALLET_ADDRESS")
 
 if not PRIVATE_KEY or not WALLET_ADDRESS:
     raise RuntimeError("PRIVATE_KEY o WALLET_ADDRESS mancanti nel .env")
+
+# Valori di default in modo da evitare UnboundLocalError nel blocco di eccezione
+system_prompt = ""
+tickers = []
+indicators_json = None
+news_txt = ""
+sentiment_json = None
+forecasts_json = None
+account_status = {}
 try:
     bot = HyperLiquidTrader(
         secret_key=PRIVATE_KEY,
@@ -64,7 +74,7 @@ try:
         return None
 
     atr_value = _extract_atr(out.get("symbol"), indicators_json)
-    bot.execute_signal(out, atr_value=atr_value)
+    execution_result = bot.execute_signal(out, atr_value=atr_value)
 
     risk_order_id = None
     if isinstance(execution_result, dict):
