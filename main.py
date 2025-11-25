@@ -18,8 +18,56 @@ VERBOSE = True    # stampa informazioni extra
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 WALLET_ADDRESS = os.getenv("WALLET_ADDRESS")
 
-if not PRIVATE_KEY or not WALLET_ADDRESS:
-    raise RuntimeError("PRIVATE_KEY o WALLET_ADDRESS mancanti nel .env")
+
+def _normalize_private_key(key: str) -> str:
+    """Verifica che la chiave privata sia lunga 32 byte e restituisce la versione normalizzata."""
+
+    if not key:
+        raise RuntimeError("PRIVATE_KEY non impostata nel .env")
+
+    key_clean = key.strip()
+    if key_clean.startswith("0x"):
+        key_body = key_clean[2:]
+    else:
+        key_body = key_clean
+
+    if len(key_body) != 64:
+        raise ValueError(
+            "PRIVATE_KEY deve essere una stringa hex di 64 caratteri (32 byte). "
+            "Verifica la chiave configurata nelle variabili d'ambiente."
+        )
+
+    # Verifica che sia una stringa hex valida
+    int(key_body, 16)
+
+    return "0x" + key_body if not key_clean.startswith("0x") else key_clean
+
+
+def _normalize_wallet_address(address: str) -> str:
+    if not address:
+        raise RuntimeError("WALLET_ADDRESS non impostato nel .env")
+
+    addr_clean = address.strip()
+    if addr_clean.startswith("0x"):
+        addr_body = addr_clean[2:]
+    else:
+        addr_body = addr_clean
+
+    if len(addr_body) != 40:
+        raise ValueError(
+            "WALLET_ADDRESS deve essere lungo 40 caratteri hex (prefisso 0x opzionale)."
+        )
+
+    int(addr_body, 16)
+
+    return "0x" + addr_body if not addr_clean.startswith("0x") else addr_clean
+
+
+PRIVATE_KEY = _normalize_private_key(PRIVATE_KEY)
+WALLET_ADDRESS = _normalize_wallet_address(WALLET_ADDRESS)
+
+# Assicurati che le tabelle esistano prima di qualsiasi operazione di logging
+db_utils.init_db()
 
 # Valori di default in modo da evitare UnboundLocalError nel blocco di eccezione
 system_prompt = ""
@@ -92,9 +140,21 @@ try:
     print(f"[db_utils] Operazione inserita con id={op_id}")
 
 except Exception as e:
-    db_utils.log_error(e, context={"prompt": system_prompt, "tickers": tickers,
-                                    "indicators":indicators_json, "news":news_txt,
-                                    "sentiment":sentiment_json, "forecasts":forecasts_json,
-                                    "balance":account_status
-                                    }, source="trading_agent")
+    try:
+        db_utils.log_error(
+            e,
+            context={
+                "prompt": system_prompt,
+                "tickers": tickers,
+                "indicators": indicators_json,
+                "news": news_txt,
+                "sentiment": sentiment_json,
+                "forecasts": forecasts_json,
+                "balance": account_status,
+            },
+            source="trading_agent",
+        )
+    except Exception as log_exc:
+        print(f"[db_utils] Impossibile registrare l'errore: {log_exc}")
+
     print(f"An error occurred: {e}")
