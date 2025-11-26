@@ -35,7 +35,7 @@ template = """
     <title>Dashboard Trading Bot</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f7f7f7; color: #1f2937; }
-        header { background: #111827; color: white; padding: 16px 24px; }
+        header { background: #111827; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
         main { padding: 20px; max-width: 1200px; margin: auto; }
         .card { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 16px; }
         h1, h2 { margin: 0 0 8px 0; }
@@ -47,12 +47,20 @@ template = """
         .status.warn { background: #fef3c7; color: #92400e; }
         .status.error { background: #fee2e2; color: #991b1b; }
         .pill { background: #e5e7eb; padding: 4px 8px; border-radius: 9999px; font-size: 12px; }
+        .actions { display: flex; gap: 8px; align-items: center; }
+        .button { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 10px 14px; cursor: pointer; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+        .button:hover { background: #1d4ed8; }
     </style>
 </head>
 <body>
     <header>
-        <h1>Dashboard Trading Bot</h1>
-        <p>Monitoraggio rapido di saldo, posizioni e operazioni recenti.</p>
+        <div>
+            <h1>Dashboard Trading Bot</h1>
+            <p>Monitoraggio rapido di saldo, posizioni e operazioni recenti.</p>
+        </div>
+        <div class="actions">
+            <button class="button" onclick="window.location.reload()">Aggiorna dati</button>
+        </div>
     </header>
     <main>
         {% if status_message %}
@@ -163,33 +171,6 @@ template = """
             {% endif %}
         </section>
 
-        <section class="card">
-            <h2>Errori recenti</h2>
-            {% if errors %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Ora</th>
-                            <th>Tipo</th>
-                            <th>Messaggio</th>
-                            <th>Origine</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for err in errors %}
-                        <tr>
-                            <td>{{ err.created }}</td>
-                            <td>{{ err.error_type }}</td>
-                            <td>{{ err.error_message }}</td>
-                            <td>{{ err.source or '-' }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>Nessun errore registrato.</p>
-            {% endif %}
-        </section>
     </main>
 </body>
 </html>
@@ -202,7 +183,6 @@ def home():
     balance_summary_raw = None
     open_positions_raw: List[dict] = []
     closed_operations_raw: List[dict] = []
-    errors: List[dict] = []
 
     try:
         balance_summary_raw = db_utils.get_account_balance_summary()
@@ -221,10 +201,13 @@ def home():
     except Exception as exc:  # pragma: no cover
         status_message = f"Errore nel recupero delle operazioni chiuse: {exc}"
 
-    try:
-        errors = db_utils.get_recent_errors(limit=20)
-    except Exception as exc:  # pragma: no cover
-        status_message = f"Errore nel recupero degli errori: {exc}"
+    balance_summary_raw = balance_summary_raw or {
+        "initial_balance": 999.0,
+        "current_balance": None,
+        "pnl_usd": None,
+        "pnl_pct": None,
+        "current_at": None,
+    }
 
     balance_summary = None
     if balance_summary_raw:
@@ -264,22 +247,11 @@ def home():
         for op in closed_operations_raw
     ]
 
-    error_rows = [
-        {
-            "created": _format_datetime(err.get("created_at")),
-            "error_type": err.get("error_type"),
-            "error_message": err.get("error_message"),
-            "source": err.get("source"),
-        }
-        for err in errors
-    ]
-
     return render_template_string(
         template,
         balance_summary=balance_summary,
         open_positions=open_positions,
         closed_operations=closed_operations,
-        errors=error_rows,
         status_message=status_message,
     )
 
