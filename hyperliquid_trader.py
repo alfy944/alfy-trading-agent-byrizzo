@@ -19,13 +19,25 @@ class HyperLiquidTrader:
         skip_ws: bool = True,
     ):
         self.secret_key = secret_key
-        self.account_address = account_address
 
         base_url = constants.TESTNET_API_URL if testnet else constants.MAINNET_API_URL
         self.base_url = base_url
 
         # crea account signer
         account: LocalAccount = eth_account.Account.from_key(secret_key)
+
+        # valida che l'indirizzo passato corrisponda alla private key
+        derived_address = account.address.lower()
+        passed_address = account_address.lower()
+        if derived_address != passed_address:
+            # Evita di interrogare l'endpoint con un indirizzo sbagliato che torna balance 0
+            print(
+                "⚠️ L'indirizzo passato non corrisponde alla private key. "
+                f"Usando l'indirizzo derivato dalla key: {account.address}"
+            )
+            account_address = account.address
+
+        self.account_address = account_address
 
         self.info = Info(base_url, skip_ws=skip_ws)
         self.exchange = Exchange(account, base_url, account_address=account_address)
@@ -190,10 +202,22 @@ class HyperLiquidTrader:
 
         # Ora procedi con l'apertura della posizione
         user = self.info.user_state(self.account_address)
-        balance_usd = Decimal(str(user["marginSummary"]["accountValue"]))
+        margin_summary = user.get("marginSummary", {}) or {}
+        balance_value = margin_summary.get("accountValue", 0)
+
+        # Log per debugging in caso di balance 0
+        print(
+            "📄 Margin summary:",
+            json.dumps(margin_summary, indent=2, ensure_ascii=False)
+        )
+
+        balance_usd = Decimal(str(balance_value))
 
         if balance_usd <= 0:
-            raise RuntimeError("Balance account = 0")
+            raise RuntimeError(
+                "Balance account = 0 — verifica che l'indirizzo usato "
+                "sia quello testnet con i fondi e che i fondi siano su Perp/Margin."
+            )
 
         notional = balance_usd * portion * Decimal(str(leverage))
 
