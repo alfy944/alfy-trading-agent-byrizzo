@@ -46,7 +46,7 @@ Per servire la dashboard online su Railway (senza doverla eseguire in locale):
 
 1. **Crea un nuovo progetto o servizio Railway** e collega il repository (anche tramite fork).
 2. Railway imposterà automaticamente l'ambiente con Nixpacks; nelle variabili di ambiente aggiungi `DATABASE_URL` puntando al database usato dal bot (es. Postgres gestito da Railway oppure lo stesso database condiviso dal bot).
-3. Imposta il comando di avvio del servizio a `python dashboard.py`. Railway fornisce la variabile `PORT` automaticamente; l'app usa `PORT` quando è presente, quindi non serve configurarla manualmente.
+3. Railway userà il comando di avvio definito in `railway.json` (`python start.py`). Per avviare la dashboard, aggiungi una variabile di ambiente `RAILWAY_START_TARGET=dashboard` (di default parte `main.py`). Railway fornisce la variabile `PORT` automaticamente; l'app usa `PORT` quando è presente, quindi non serve configurarla manualmente.
 4. Avvia il deploy. Una volta terminato, Railway espone un URL pubblico in cui è disponibile la dashboard Flask.
 
 ## Licenza
