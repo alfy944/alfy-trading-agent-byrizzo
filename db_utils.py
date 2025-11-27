@@ -875,6 +875,136 @@ def get_latest_account_snapshot() -> Optional[Dict[str, Any]]:
             return row[0]
 
 
+def get_latest_account_snapshot_with_timestamp() -> Optional[Dict[str, Any]]:
+    """Restituisce l'ultimo snapshot con timestamp e payload grezzo."""
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT created_at, raw_payload
+                    FROM account_snapshots
+                    ORDER BY created_at DESC
+                    LIMIT 1;
+                    """
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                created_at, payload = row
+                return {"created_at": created_at, "payload": payload}
+    except psycopg2.errors.UndefinedTable:
+        return None
+
+
+def get_account_balance_summary() -> Optional[Dict[str, Any]]:
+    """Restituisce saldo iniziale, saldo corrente e PnL totale."""
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT created_at, balance_usd
+                    FROM account_snapshots
+                    ORDER BY created_at ASC
+                    LIMIT 1;
+                    """,
+                )
+                first_row = cur.fetchone()
+
+                cur.execute(
+                    """
+                    SELECT created_at, balance_usd
+                    FROM account_snapshots
+                    ORDER BY created_at DESC
+                    LIMIT 1;
+                    """,
+                )
+                last_row = cur.fetchone()
+
+                if not first_row or not last_row:
+                    # Nessun dato in tabella: fornisci un fallback predefinito
+                    return {
+                        "initial_balance": 999.0,
+                        "initial_at": None,
+                        "current_balance": None,
+                        "current_at": None,
+                        "pnl_usd": None,
+                        "pnl_pct": None,
+                    }
+
+                first_created, first_balance = first_row
+                last_created, last_balance = last_row
+
+                if first_balance is None:
+                    first_balance = 999.0
+
+                pnl_usd = float(last_balance) - float(first_balance)
+                pnl_pct = (
+                    (float(last_balance) / float(first_balance) - 1) * 100
+                    if float(first_balance) != 0
+                    else None
+                )
+
+                return {
+                    "initial_balance": float(first_balance),
+                    "initial_at": first_created,
+                    "current_balance": float(last_balance),
+                    "current_at": last_created,
+                    "pnl_usd": pnl_usd,
+                    "pnl_pct": pnl_pct,
+                }
+    except psycopg2.errors.UndefinedTable:
+        return None
+
+
+def get_latest_open_positions_with_details() -> List[Dict[str, Any]]:
+    """Restituisce le posizioni aperte più recenti con i dettagli principali."""
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    WITH latest_snapshot AS (
+                        SELECT id, created_at
+                        FROM account_snapshots
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    )
+                    SELECT ls.created_at,
+                           p.symbol,
+                           p.side,
+                           p.size,
+                           p.entry_price,
+                           p.mark_price,
+                           p.pnl_usd,
+                           p.leverage
+                    FROM open_positions p
+                    JOIN latest_snapshot ls ON p.snapshot_id = ls.id
+                    ORDER BY p.symbol;
+                    """
+                )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "snapshot_at": created_at,
+                        "symbol": symbol,
+                        "side": side,
+                        "size": size,
+                        "entry_price": entry_price,
+                        "mark_price": mark_price,
+                        "pnl_usd": pnl_usd,
+                        "leverage": leverage,
+                    }
+                    for created_at, symbol, side, size, entry_price, mark_price, pnl_usd, leverage in rows
+                ]
+    except psycopg2.errors.UndefinedTable:
+        return []
+
+
 
 def get_recent_bot_operations(limit: int = 50) -> List[Dict[str, Any]]:
     """Restituisce le ultime N operazioni del bot (raw_payload)."""
@@ -892,6 +1022,69 @@ def get_recent_bot_operations(limit: int = 50) -> List[Dict[str, Any]]:
             )
             rows = cur.fetchall()
             return [r[0] for r in rows]
+
+
+def get_recent_bot_operations_with_timestamp(
+    limit: int = 50, operation_type: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Restituisce le ultime N operazioni con timestamp e payload.
+
+    Se operation_type è valorizzato, filtra per tipo (es. "open" o "close").
+    """
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                base_query = """
+                    SELECT created_at, raw_payload
+                    FROM bot_operations
+                """
+                params: List[Any] = []
+
+                if operation_type:
+                    base_query += " WHERE raw_payload ->> 'operation' = %s"
+                    params.append(operation_type)
+
+                base_query += " ORDER BY created_at DESC LIMIT %s;"
+                params.append(limit)
+
+                cur.execute(base_query, tuple(params))
+                rows = cur.fetchall()
+                return [
+                    {"created_at": created_at, "payload": payload}
+                    for created_at, payload in rows
+                ]
+    except psycopg2.errors.UndefinedTable:
+        return []
+
+
+def get_recent_errors(limit: int = 50) -> List[Dict[str, Any]]:
+    """Restituisce gli ultimi errori registrati con timestamp."""
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT created_at, error_type, error_message, source
+                    FROM errors
+                    ORDER BY created_at DESC
+                    LIMIT %s;
+                    """,
+                    (limit,),
+                )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "created_at": created_at,
+                        "error_type": error_type,
+                        "error_message": error_message,
+                        "source": source,
+                    }
+                    for created_at, error_type, error_message, source in rows
+                ]
+    except psycopg2.errors.UndefinedTable:
+        return []
 
 
 if __name__ == "__main__":
