@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from flask import Flask, render_template_string
 
@@ -24,6 +24,28 @@ def _format_number(value: Optional[float], suffix: str = "") -> str:
         return f"{float(value):,.2f}{suffix}"
     except Exception:
         return str(value)
+
+
+def _extract_from_mapping(data: dict, candidate_keys: List[str]) -> Optional[float]:
+    """Estrae il primo valore numerico trovando eventuali sinonimi, anche annidati."""
+
+    def _search(obj: Any) -> Optional[float]:  # type: ignore
+        if isinstance(obj, dict):
+            for key in candidate_keys:
+                if key in obj and obj[key] is not None:
+                    return obj[key]
+            for value in obj.values():
+                found = _search(value)
+                if found is not None:
+                    return found
+        elif isinstance(obj, list):
+            for value in obj:
+                found = _search(value)
+                if found is not None:
+                    return found
+        return None
+
+    return _search(data)
 
 
 template = """
@@ -201,13 +223,16 @@ def home():
     except Exception as exc:  # pragma: no cover
         status_message = f"Errore nel recupero delle operazioni chiuse: {exc}"
 
-    balance_summary_raw = balance_summary_raw or {
-        "initial_balance": 999.0,
-        "current_balance": None,
-        "pnl_usd": None,
-        "pnl_pct": None,
-        "current_at": None,
-    }
+    if not balance_summary_raw:
+        balance_summary_raw = {
+            "initial_balance": 999.0,
+            "current_balance": None,
+            "pnl_usd": None,
+            "pnl_pct": None,
+            "current_at": None,
+        }
+    elif not balance_summary_raw.get("initial_balance"):
+        balance_summary_raw["initial_balance"] = 999.0
 
     balance_summary = None
     if balance_summary_raw:
@@ -238,10 +263,44 @@ def home():
             "created": _format_datetime(op.get("created_at")),
             "symbol": op.get("payload", {}).get("symbol", "-"),
             "direction": op.get("payload", {}).get("direction", "-"),
-            "entry_price": _format_number(op.get("payload", {}).get("entry_price")),
-            "exit_price": _format_number(op.get("payload", {}).get("exit_price")),
-            "pnl_usd": _format_number(op.get("payload", {}).get("pnl_usd")),
-            "fees": _format_number(op.get("payload", {}).get("fees")),
+            "entry_price": _format_number(
+                _extract_from_mapping(
+                    op.get("payload", {}),
+                    [
+                        "entry_price",
+                        "entry",
+                        "entryPx",
+                        "avgEntryPrice",
+                        "price_entry",
+                    ],
+                )
+            ),
+            "exit_price": _format_number(
+                _extract_from_mapping(
+                    op.get("payload", {}),
+                    [
+                        "exit_price",
+                        "close_price",
+                        "exit",
+                        "avgExitPrice",
+                        "price_exit",
+                        "fillPx",
+                        "price",
+                    ],
+                )
+            ),
+            "pnl_usd": _format_number(
+                _extract_from_mapping(
+                    op.get("payload", {}),
+                    ["pnl_usd", "pnl", "pnlUsd", "profit"],
+                )
+            ),
+            "fees": _format_number(
+                _extract_from_mapping(
+                    op.get("payload", {}),
+                    ["fees", "fee", "commission", "commissions"],
+                )
+            ),
             "leverage": op.get("payload", {}).get("leverage", "-"),
         }
         for op in closed_operations_raw

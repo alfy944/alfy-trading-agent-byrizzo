@@ -925,10 +925,21 @@ def get_account_balance_summary() -> Optional[Dict[str, Any]]:
                 last_row = cur.fetchone()
 
                 if not first_row or not last_row:
-                    return None
+                    # Nessun dato in tabella: fornisci un fallback predefinito
+                    return {
+                        "initial_balance": 999.0,
+                        "initial_at": None,
+                        "current_balance": None,
+                        "current_at": None,
+                        "pnl_usd": None,
+                        "pnl_pct": None,
+                    }
 
                 first_created, first_balance = first_row
                 last_created, last_balance = last_row
+
+                if first_balance is None:
+                    first_balance = 999.0
 
                 pnl_usd = float(last_balance) - float(first_balance)
                 pnl_pct = (
