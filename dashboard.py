@@ -1,320 +1,294 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, List, Optional
 
-from flask import Flask, render_template_string
-
-import db_utils
-
-app = Flask(__name__)
-
-
-def _format_datetime(value: Optional[datetime]) -> str:
-    if value is None:
-        return "N/D"
-    return value.strftime("%Y-%m-%d %H:%M:%S %Z")
+import psycopg2
+from dotenv import load_dotenv
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 
-def _format_number(value: Optional[float], suffix: str = "") -> str:
-    if value is None:
-        return "N/D"
-    try:
-        return f"{float(value):,.2f}{suffix}"
-    except Exception:
-        return str(value)
+# Carica variabili d'ambiente da .env (se presente)
+load_dotenv()
 
 
-def _extract_from_mapping(data: dict, candidate_keys: List[str]) -> Optional[float]:
-    """Estrae il primo valore numerico trovando eventuali sinonimi, anche annidati."""
-
-    def _search(obj: Any) -> Optional[float]:  # type: ignore
-        if isinstance(obj, dict):
-            for key in candidate_keys:
-                if key in obj and obj[key] is not None:
-                    return obj[key]
-            for value in obj.values():
-                found = _search(value)
-                if found is not None:
-                    return found
-        elif isinstance(obj, list):
-            for value in obj:
-                found = _search(value)
-                if found is not None:
-                    return found
-        return None
-
-    return _search(data)
-
-
-template = """
-<!doctype html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Trading Bot</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f7f7f7; color: #1f2937; }
-        header { background: #111827; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-        main { padding: 20px; max-width: 1200px; margin: auto; }
-        .card { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 16px; }
-        h1, h2 { margin: 0 0 8px 0; }
-        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-        th { background: #f3f4f6; }
-        .status { padding: 8px 12px; border-radius: 6px; display: inline-block; }
-        .status.ok { background: #d1fae5; color: #065f46; }
-        .status.warn { background: #fef3c7; color: #92400e; }
-        .status.error { background: #fee2e2; color: #991b1b; }
-        .pill { background: #e5e7eb; padding: 4px 8px; border-radius: 9999px; font-size: 12px; }
-        .actions { display: flex; gap: 8px; align-items: center; }
-        .button { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 10px 14px; cursor: pointer; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
-        .button:hover { background: #1d4ed8; }
-    </style>
-</head>
-<body>
-    <header>
-        <div>
-            <h1>Dashboard Trading Bot</h1>
-            <p>Monitoraggio rapido di saldo, posizioni e operazioni recenti.</p>
-        </div>
-        <div class="actions">
-            <button class="button" onclick="window.location.reload()">Aggiorna dati</button>
-        </div>
-    </header>
-    <main>
-        {% if status_message %}
-            <div class="card status warn">{{ status_message }}</div>
-        {% endif %}
-
-        <section class="card">
-            <h2>Riepilogo account</h2>
-            {% if balance_summary %}
-                <table>
-                    <tbody>
-                        <tr>
-                            <th>Saldo attuale</th>
-                            <td>{{ balance_summary.current_balance }}</td>
-                        </tr>
-                        <tr>
-                            <th>Saldo iniziale</th>
-                            <td>{{ balance_summary.initial_balance }}</td>
-                        </tr>
-                        <tr>
-                            <th>PnL totale ($)</th>
-                            <td>{{ balance_summary.pnl_usd }}</td>
-                        </tr>
-                        <tr>
-                            <th>PnL totale (%)</th>
-                            <td>{{ balance_summary.pnl_pct }}</td>
-                        </tr>
-                        <tr>
-                            <th>Ultimo aggiornamento</th>
-                            <td>{{ balance_summary.last_updated }}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            {% else %}
-                <p>Nessun dato di saldo disponibile.</p>
-            {% endif %}
-        </section>
-
-        <section class="card">
-            <h2>Operazioni aperte</h2>
-            {% if open_positions %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Symbol</th>
-                            <th>Direzione</th>
-                            <th>Size</th>
-                            <th>Prezzo ingresso</th>
-                            <th>Prezzo attuale</th>
-                            <th>PnL (USD)</th>
-                            <th>Leva</th>
-                            <th>Aggiornato</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for pos in open_positions %}
-                        <tr>
-                            <td>{{ pos.symbol }}</td>
-                            <td>{{ pos.side }}</td>
-                            <td>{{ pos.size }}</td>
-                            <td>{{ pos.entry_price }}</td>
-                            <td>{{ pos.mark_price }}</td>
-                            <td>{{ pos.pnl_usd }}</td>
-                            <td>{{ pos.leverage }}</td>
-                            <td>{{ pos.snapshot_at }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>Nessuna posizione aperta.</p>
-            {% endif %}
-        </section>
-
-        <section class="card">
-            <h2>Operazioni chiuse (ultime)</h2>
-            {% if closed_operations %}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Data/Ora</th>
-                            <th>Symbol</th>
-                            <th>Direzione</th>
-                            <th>Prezzo ingresso</th>
-                            <th>Prezzo uscita</th>
-                            <th>PnL (USD)</th>
-                            <th>Commissioni</th>
-                            <th>Leva</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for op in closed_operations %}
-                        <tr>
-                            <td>{{ op.created }}</td>
-                            <td>{{ op.symbol }}</td>
-                            <td>{{ op.direction }}</td>
-                            <td>{{ op.entry_price }}</td>
-                            <td>{{ op.exit_price }}</td>
-                            <td>{{ op.pnl_usd }}</td>
-                            <td>{{ op.fees }}</td>
-                            <td>{{ op.leverage }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p>Nessuna operazione chiusa registrata.</p>
-            {% endif %}
-        </section>
-
-    </main>
-</body>
-</html>
-"""
-
-
-@app.route("/")
-def home():
-    status_message: Optional[str] = None
-    balance_summary_raw = None
-    open_positions_raw: List[dict] = []
-    closed_operations_raw: List[dict] = []
-
-    try:
-        balance_summary_raw = db_utils.get_account_balance_summary()
-    except Exception as exc:  # pragma: no cover - dashboard best effort
-        status_message = f"Errore nel recupero del riepilogo saldo: {exc}"
-
-    try:
-        open_positions_raw = db_utils.get_latest_open_positions_with_details()
-    except Exception as exc:  # pragma: no cover
-        status_message = f"Errore nel recupero delle posizioni aperte: {exc}"
-
-    try:
-        closed_operations_raw = db_utils.get_recent_bot_operations_with_timestamp(
-            limit=20, operation_type="close"
-        )
-    except Exception as exc:  # pragma: no cover
-        status_message = f"Errore nel recupero delle operazioni chiuse: {exc}"
-
-    if not balance_summary_raw:
-        balance_summary_raw = {
-            "initial_balance": 999.0,
-            "current_balance": None,
-            "pnl_usd": None,
-            "pnl_pct": None,
-            "current_at": None,
-        }
-    elif not balance_summary_raw.get("initial_balance"):
-        balance_summary_raw["initial_balance"] = 999.0
-
-    balance_summary = None
-    if balance_summary_raw:
-        balance_summary = {
-            "current_balance": _format_number(balance_summary_raw.get("current_balance")),
-            "initial_balance": _format_number(balance_summary_raw.get("initial_balance")),
-            "pnl_usd": _format_number(balance_summary_raw.get("pnl_usd")),
-            "pnl_pct": _format_number(balance_summary_raw.get("pnl_pct"), suffix="%"),
-            "last_updated": _format_datetime(balance_summary_raw.get("current_at")),
-        }
-
-    open_positions = [
-        {
-            "symbol": pos.get("symbol", "-"),
-            "side": pos.get("side", "-"),
-            "size": _format_number(pos.get("size")),
-            "entry_price": _format_number(pos.get("entry_price")),
-            "mark_price": _format_number(pos.get("mark_price")),
-            "pnl_usd": _format_number(pos.get("pnl_usd")),
-            "leverage": pos.get("leverage", "-"),
-            "snapshot_at": _format_datetime(pos.get("snapshot_at")),
-        }
-        for pos in open_positions_raw
-    ]
-
-    closed_operations = [
-        {
-            "created": _format_datetime(op.get("created_at")),
-            "symbol": op.get("payload", {}).get("symbol", "-"),
-            "direction": op.get("payload", {}).get("direction", "-"),
-            "entry_price": _format_number(
-                _extract_from_mapping(
-                    op.get("payload", {}),
-                    [
-                        "entry_price",
-                        "entry",
-                        "entryPx",
-                        "avgEntryPrice",
-                        "price_entry",
-                    ],
-                )
-            ),
-            "exit_price": _format_number(
-                _extract_from_mapping(
-                    op.get("payload", {}),
-                    [
-                        "exit_price",
-                        "close_price",
-                        "exit",
-                        "avgExitPrice",
-                        "price_exit",
-                        "fillPx",
-                        "price",
-                    ],
-                )
-            ),
-            "pnl_usd": _format_number(
-                _extract_from_mapping(
-                    op.get("payload", {}),
-                    ["pnl_usd", "pnl", "pnlUsd", "profit"],
-                )
-            ),
-            "fees": _format_number(
-                _extract_from_mapping(
-                    op.get("payload", {}),
-                    ["fees", "fee", "commission", "commissions"],
-                )
-            ),
-            "leverage": op.get("payload", {}).get("leverage", "-"),
-        }
-        for op in closed_operations_raw
-    ]
-
-    return render_template_string(
-        template,
-        balance_summary=balance_summary,
-        open_positions=open_positions,
-        closed_operations=closed_operations,
-        status_message=status_message,
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL non impostata. Imposta la variabile d'ambiente, "
+        "ad esempio: postgresql://user:password@localhost:5432/trading_db",
     )
 
 
+@contextmanager
+def get_connection():
+    """Context manager che restituisce una connessione PostgreSQL.
+
+    Usa il DSN in DATABASE_URL.
+    """
+
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+# =====================
+# Modelli di risposta API
+# =====================
+
+
+class BalancePoint(BaseModel):
+    timestamp: datetime
+    balance_usd: float
+
+
+class OpenPosition(BaseModel):
+    id: int
+    snapshot_id: int
+    symbol: str
+    side: str
+    size: float
+    entry_price: Optional[float]
+    mark_price: Optional[float]
+    pnl_usd: Optional[float]
+    leverage: Optional[str]
+    snapshot_created_at: datetime
+
+
+class BotOperation(BaseModel):
+    id: int
+    created_at: datetime
+    operation: str
+    symbol: Optional[str]
+    direction: Optional[str]
+    target_portion_of_balance: Optional[float]
+    leverage: Optional[float]
+    raw_payload: Any
+    system_prompt: Optional[str]
+
+
+# =====================
+# App FastAPI + Template Jinja2
+# =====================
+
+
+app = FastAPI(
+    title="Trading Agent Dashboard API",
+    description=(
+        "API per leggere i dati del trading agent dal database Postgres: "
+        "saldo nel tempo, posizioni aperte, operazioni del bot con full prompt."
+    ),
+    version="0.3.1",
+)
+
+templates = Jinja2Templates(directory="templates")
+
+
+# =====================
+# Endpoint API JSON
+# =====================
+
+
+@app.get("/balance", response_model=List[BalancePoint])
+def get_balance() -> List[BalancePoint]:
+    """Restituisce TUTTA la storia del saldo (balance_usd) ordinata nel tempo.
+
+    I dati sono presi dalla tabella `account_snapshots`.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT created_at, balance_usd
+                FROM account_snapshots
+                ORDER BY created_at ASC;
+                """
+            )
+            rows = cur.fetchall()
+
+    return [
+        BalancePoint(timestamp=row[0], balance_usd=float(row[1]))
+        for row in rows
+    ]
+
+
+@app.get("/open-positions", response_model=List[OpenPosition])
+def get_open_positions() -> List[OpenPosition]:
+    """Restituisce le posizioni aperte dell'ULTIMO snapshot disponibile.
+
+    - Prende l'ultimo record da `account_snapshots`.
+    - Recupera le posizioni corrispondenti da `open_positions`.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Ultimo snapshot
+            cur.execute(
+                """
+                SELECT id, created_at
+                FROM account_snapshots
+                ORDER BY created_at DESC
+                LIMIT 1;
+                """
+            )
+            row = cur.fetchone()
+            if not row:
+                return []
+            snapshot_id = row[0]
+            snapshot_created_at = row[1]
+
+            # Posizioni aperte per quello snapshot
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    snapshot_id,
+                    symbol,
+                    side,
+                    size,
+                    entry_price,
+                    mark_price,
+                    pnl_usd,
+                    leverage
+                FROM open_positions
+                WHERE snapshot_id = %s
+                ORDER BY symbol ASC, id ASC;
+                """,
+                (snapshot_id,),
+            )
+            rows = cur.fetchall()
+
+    return [
+        OpenPosition(
+            id=row[0],
+            snapshot_id=row[1],
+            symbol=row[2],
+            side=row[3],
+            size=float(row[4]),
+            entry_price=float(row[5]) if row[5] is not None else None,
+            mark_price=float(row[6]) if row[6] is not None else None,
+            pnl_usd=float(row[7]) if row[7] is not None else None,
+            leverage=row[8],
+            snapshot_created_at=snapshot_created_at,
+        )
+        for row in rows
+    ]
+
+
+@app.get("/bot-operations", response_model=List[BotOperation])
+def get_bot_operations(
+    limit: int = Query(
+        50,
+        ge=1,
+        le=500,
+        description="Numero massimo di operazioni da restituire (default 50)",
+    ),
+) -> List[BotOperation]:
+    """Restituisce le ULTIME `limit` operazioni del bot con il full system prompt.
+
+    - I dati provengono da `bot_operations` uniti a `ai_contexts`.
+    - Ordinati da più recente a meno recente.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    bo.id,
+                    bo.created_at,
+                    bo.operation,
+                    bo.symbol,
+                    bo.direction,
+                    bo.target_portion_of_balance,
+                    bo.leverage,
+                    bo.raw_payload,
+                    ac.system_prompt
+                FROM bot_operations AS bo
+                LEFT JOIN ai_contexts AS ac ON bo.context_id = ac.id
+                ORDER BY bo.created_at DESC
+                LIMIT %s;
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+
+    operations: List[BotOperation] = []
+    for row in rows:
+        operations.append(
+            BotOperation(
+                id=row[0],
+                created_at=row[1],
+                operation=row[2],
+                symbol=row[3],
+                direction=row[4],
+                target_portion_of_balance=float(row[5]) if row[5] is not None else None,
+                leverage=float(row[6]) if row[6] is not None else None,
+                raw_payload=row[7],
+                system_prompt=row[8],
+            )
+        )
+
+    return operations
+
+
+# =====================
+# Endpoint HTML + HTMX
+# =====================
+
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request) -> HTMLResponse:
+    """Dashboard principale HTML."""
+
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+
+@app.get("/ui/balance", response_class=HTMLResponse)
+async def ui_balance(request: Request) -> HTMLResponse:
+    """Partial HTML con il grafico del saldo nel tempo."""
+
+    points = get_balance()
+    labels = [p.timestamp.isoformat() for p in points]
+    values = [p.balance_usd for p in points]
+    return templates.TemplateResponse(
+        "partials/balance_table.html",
+        {"request": request, "labels": labels, "values": values},
+    )
+
+
+@app.get("/ui/open-positions", response_class=HTMLResponse)
+async def ui_open_positions(request: Request) -> HTMLResponse:
+    """Partial HTML con le posizioni aperte (ultimo snapshot)."""
+
+    positions = get_open_positions()
+    return templates.TemplateResponse(
+        "partials/open_positions_table.html",
+        {"request": request, "positions": positions},
+    )
+
+
+@app.get("/ui/bot-operations", response_class=HTMLResponse)
+async def ui_bot_operations(request: Request) -> HTMLResponse:
+    """Partial HTML con le ultime operazioni del bot."""
+
+    operations = get_bot_operations(limit=50)
+    return templates.TemplateResponse(
+        "partials/bot_operations_table.html",
+        {"request": request, "operations": operations},
+    )
+
+
+# Comodo per sviluppo locale: `python main.py`
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    import uvicorn
+
+    uvicorn.run("main:app", host="localhost", port=8000, reload=True)
