@@ -1,52 +1,108 @@
-<div class="card">
-    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l4.5 4.5L21 3" />
-    </svg>
-    <div>
-        <div class="muted">Saldo totale</div>
-        <div style="font-size:1.4rem;font-weight:700;">${{ '%.2f'|format(values[-1] if values else 0) }}</div>
-        {% if labels %}
-        <div class="muted">Ultimo aggiornamento: {{ labels[-1] }}</div>
-        {% else %}
-        <div class="muted">Nessun dato ancora disponibile.</div>
-        {% endif %}
-    </div>
+{% if values and labels %}
+<div style="height: 380px; padding: 0.5rem 0.25rem 0.75rem 0;">
+    <canvas id="balanceChart" style="display:block; width:100%;"></canvas>
 </div>
+<script>
+    (function () {
+        const canvas = document.getElementById('balanceChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
 
-{% if labels %}
-    <canvas id="balance-chart" style="width:100%;height:240px;margin-top:1rem;"></canvas>
-    <script>
-        (function() {
-            const ctx = document.getElementById('balance-chart').getContext('2d');
-            const existing = Chart.getChart(ctx);
-            if (existing) existing.destroy();
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: {{ labels | tojson }},
-                    datasets: [{
-                        label: 'Balance (USD)',
-                        data: {{ values | tojson }},
-                        borderColor: '#8ab4f8',
-                        backgroundColor: 'rgba(138, 180, 248, 0.12)',
-                        fill: true,
+        const labels = {{ labels | tojson }};
+        const data = {{ values | tojson }};
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Saldo USD',
+                        data: data,
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                        borderWidth: 2,
+                        pointRadius: 0,
                         tension: 0.25,
-                        pointRadius: 2,
-                        pointBackgroundColor: '#8ab4f8'
-                    }]
-                },
-                options: {
-                    scales: {
-                        y: { ticks: { color: '#cbd5e1' } },
-                        x: { ticks: { color: '#cbd5e1', maxRotation: 45, minRotation: 45 } }
                     },
-                    plugins: { legend: { labels: { color: '#e2e8f0' } } },
-                    responsive: true,
-                    maintainAspectRatio: false,
-                }
-            });
-        })();
-    </script>
+                    {
+                        label: 'Valore iniziale',
+                        data: Array(data.length).fill(data.length ? data[0] : null),
+                        borderColor: '#9ca3af',
+                        borderDash: [5, 4],
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        tension: 0,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: {
+                    padding: {
+                        left: 0,
+                        right: 10,
+                        top: 5,
+                        bottom: 0,
+                    },
+                },
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: {
+                            color: '#374151',
+                            font: { size: 11 },
+                        },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const value = context.parsed.y;
+                                return 'Saldo: $' + value.toFixed(2);
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#4b5563',
+                            maxTicksLimit: 6,
+                            callback: function (value, index, ticks) {
+                                const raw = labels[index];
+                                const d = new Date(raw);
+                                if (isNaN(d.getTime())) return raw;
+                                return d.toLocaleString('it-IT', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                });
+                            },
+                        },
+                        grid: { display: false },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#4b5563',
+                            callback: function (value) {
+                                return '$' + value;
+                            },
+                        },
+                        grid: {
+                            color: 'rgba(148, 163, 184, 0.3)',
+                        },
+                    },
+                },
+            },
+        });
+    })();
+</script>
 {% else %}
-    <p class="muted">Nessun saldo registrato.</p>
+<p>Nessun dato di saldo trovato.</p>
 {% endif %}
