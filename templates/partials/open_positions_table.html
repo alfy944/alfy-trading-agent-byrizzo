@@ -1,0 +1,32 @@
+{% if positions %}
+<table>
+    <thead>
+        <tr>
+            <th>Symbol</th>
+            <th>Lato</th>
+            <th>Size</th>
+            <th>Entry</th>
+            <th>Mark</th>
+            <th>PnL (USD)</th>
+            <th>Lev</th>
+            <th>Snapshot</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for p in positions %}
+        <tr>
+            <td>{{ p.symbol }}</td>
+            <td><span class="badge {{ 'buy' if p.side|lower == 'buy' else 'sell' }}">{{ p.side }}</span></td>
+            <td>{{ '%.4f'|format(p.size) }}</td>
+            <td>{{ '%.4f'|format(p.entry_price) if p.entry_price is not none else '-' }}</td>
+            <td>{{ '%.4f'|format(p.mark_price) if p.mark_price is not none else '-' }}</td>
+            <td>{{ '%.2f'|format(p.pnl_usd) if p.pnl_usd is not none else '-' }}</td>
+            <td>{{ p.leverage if p.leverage else '-' }}</td>
+            <td class="muted">{{ p.snapshot_created_at }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted">Nessuna posizione aperta trovata.</p>
+{% endif %}
