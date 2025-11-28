@@ -16,7 +16,7 @@ Guarda la presentazione del progetto su YouTube:
 
 ## Dashboard web
 
-È disponibile una dashboard minimale per monitorare il saldo, le posizioni aperte, le ultime operazioni chiuse (con prezzi, PnL e commissioni se presenti) e gli eventuali errori del bot. Per avviarla:
+È disponibile una dashboard web (FastAPI + HTMX) per monitorare il saldo, le posizioni aperte e le ultime operazioni generate dal bot. Per avviarla:
 
 1. Installa le dipendenze (idealmente in un virtualenv):
 
@@ -24,21 +24,21 @@ Guarda la presentazione del progetto su YouTube:
    pip install -r requirements.txt
    ```
 
-2. Esporta l'URL del database usato dal bot (ad esempio un SQLite locale):
+2. Esporta l'URL del database PostgreSQL usato dal bot (lo stesso configurato in `DATABASE_URL`):
 
    ```bash
-   export DATABASE_URL=sqlite:///./trading_bot.db
+   export DATABASE_URL=postgresql://user:password@host:5432/trading_db
    ```
 
    Assicurati che il bot abbia già scritto almeno un record nel database, altrimenti le tabelle potrebbero essere vuote.
 
-3. Avvia la dashboard Flask:
+3. Avvia la dashboard FastAPI con Uvicorn:
 
    ```bash
-   python dashboard.py
+   uvicorn dashboard:app --host 0.0.0.0 --port 8000
    ```
 
-   L'applicazione si avvia su `http://localhost:5000` (o sull'IP del server se la esegui in remoto). Apri quell'URL nel browser per visualizzare saldo, posizioni aperte e operazioni recenti.
+   L'applicazione si avvia su `http://localhost:8000` (o sull'IP del server se la esegui in remoto). Apri quell'URL nel browser per visualizzare saldo, posizioni aperte e operazioni recenti.
 
 ### Deploy rapido su Railway
 
@@ -46,8 +46,8 @@ Per servire la dashboard online su Railway (senza doverla eseguire in locale):
 
 1. **Crea un nuovo progetto o servizio Railway** e collega il repository (anche tramite fork).
 2. Railway imposterà automaticamente l'ambiente con Nixpacks; nelle variabili di ambiente aggiungi `DATABASE_URL` puntando al database usato dal bot (es. Postgres gestito da Railway oppure lo stesso database condiviso dal bot).
-3. Railway userà il comando di avvio definito in `railway.json` (`python start.py`). Per avviare la dashboard, aggiungi una variabile di ambiente `RAILWAY_START_TARGET=dashboard` (di default parte `main.py`). Railway fornisce la variabile `PORT` automaticamente; l'app usa `PORT` quando è presente, quindi non serve configurarla manualmente.
-4. Avvia il deploy. Una volta terminato, Railway espone un URL pubblico in cui è disponibile la dashboard Flask.
+3. Railway userà il comando di avvio definito in `railway.json` (`python start.py`). Per avviare la dashboard FastAPI, aggiungi una variabile di ambiente `RAILWAY_START_TARGET=dashboard` (di default parte `main.py`). Railway fornisce la variabile `PORT` automaticamente; l'app usa `PORT` quando è presente, quindi non serve configurarla manualmente.
+4. Avvia il deploy. Una volta terminato, Railway espone un URL pubblico in cui è disponibile la dashboard FastAPI.
 
 ## Licenza
 

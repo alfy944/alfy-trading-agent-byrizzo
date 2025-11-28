@@ -59,6 +59,7 @@ class OpenPosition(BaseModel):
     mark_price: Optional[float]
     pnl_usd: Optional[float]
     leverage: Optional[str]
+    raw_payload: Any
     snapshot_created_at: datetime
 
 
@@ -157,7 +158,8 @@ def get_open_positions() -> List[OpenPosition]:
                     entry_price,
                     mark_price,
                     pnl_usd,
-                    leverage
+                    leverage,
+                    raw_payload
                 FROM open_positions
                 WHERE snapshot_id = %s
                 ORDER BY symbol ASC, id ASC;
@@ -177,6 +179,7 @@ def get_open_positions() -> List[OpenPosition]:
             mark_price=float(row[6]) if row[6] is not None else None,
             pnl_usd=float(row[7]) if row[7] is not None else None,
             leverage=row[8],
+            raw_payload=row[9],
             snapshot_created_at=snapshot_created_at,
         )
         for row in rows
@@ -291,4 +294,10 @@ async def ui_bot_operations(request: Request) -> HTMLResponse:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="localhost", port=8000, reload=True)
+    reload = os.getenv("RELOAD", "false").lower() == "true"
+    uvicorn.run(
+        "dashboard:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8000")),
+        reload=reload,
+    )

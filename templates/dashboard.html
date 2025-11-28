@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Agent Dashboard</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+    <style>
+        :root {
+            color-scheme: light dark;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0 1.25rem 2rem;
+            background: #0c0c0c;
+            color: #e6e6e6;
+        }
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 0;
+            border-bottom: 1px solid #333;
+            margin-bottom: 1rem;
+        }
+        h1 {
+            margin: 0;
+            font-size: 1.4rem;
+            letter-spacing: 0.02em;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1rem;
+        }
+        section {
+            background: #111;
+            border: 1px solid #1f1f1f;
+            border-radius: 12px;
+            padding: 1rem;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+        }
+        section h2 {
+            margin-top: 0;
+            margin-bottom: 0.75rem;
+            font-size: 1.05rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.92rem;
+        }
+        th, td {
+            padding: 0.5rem 0.35rem;
+            border-bottom: 1px solid #222;
+            text-align: left;
+        }
+        th {
+            color: #c3c3c3;
+            font-weight: 600;
+            font-size: 0.85rem;
+            letter-spacing: 0.01em;
+        }
+        tr:hover {
+            background: rgba(255,255,255,0.03);
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.55rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .buy { background: rgba(0,160,80,0.16); color: #6df0b2; }
+        .sell { background: rgba(220,80,80,0.16); color: #f29393; }
+        .muted { color: #9ca3af; }
+        .card {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .card svg { flex-shrink: 0; }
+        a {
+            color: #8ab4f8;
+        }
+        .note {
+            color: #a1a1a1;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>📊 Trading Agent Dashboard</h1>
+    <div class="note">Aggiornamento automatico ogni 15s (balance) / 10s (posizioni/operazioni).</div>
+</header>
+
+<div class="grid">
+    <section>
+        <h2>💰 Saldo account</h2>
+        <div id="balance-card" hx-get="/ui/balance" hx-trigger="load, every 15s" hx-target="#balance-card" hx-swap="innerHTML">
+            <p class="muted">Caricamento saldo…</p>
+        </div>
+    </section>
+
+    <section>
+        <h2>📌 Posizioni aperte</h2>
+        <div id="open-positions" hx-get="/ui/open-positions" hx-trigger="load, every 10s" hx-target="#open-positions" hx-swap="innerHTML">
+            <p class="muted">Caricamento posizioni…</p>
+        </div>
+    </section>
+
+    <section>
+        <h2>🤖 Ultime operazioni del bot</h2>
+        <div id="bot-operations" hx-get="/ui/bot-operations" hx-trigger="load, every 10s" hx-target="#bot-operations" hx-swap="innerHTML">
+            <p class="muted">Caricamento operazioni…</p>
+        </div>
+    </section>
+</div>
+</body>
+</html>

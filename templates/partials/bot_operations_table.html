@@ -1,0 +1,46 @@
+{% if operations %}
+<table>
+    <thead>
+        <tr>
+            <th>Ora</th>
+            <th>Operazione</th>
+            <th>Symbol</th>
+            <th>Direzione</th>
+            <th>Target bal.</th>
+            <th>Lev</th>
+            <th>Payload</th>
+            <th>System prompt</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for op in operations %}
+        <tr>
+            <td class="muted">{{ op.created_at }}</td>
+            <td>{{ op.operation }}</td>
+            <td>{{ op.symbol or '-' }}</td>
+            <td>{{ op.direction or '-' }}</td>
+            <td>{{ '%.2f'|format(op.target_portion_of_balance) if op.target_portion_of_balance is not none else '-' }}</td>
+            <td>{{ '%.2f'|format(op.leverage) if op.leverage is not none else '-' }}</td>
+            <td>
+                <details>
+                    <summary>Vedi</summary>
+                    <pre style="white-space: pre-wrap; font-size:0.85rem;">{{ op.raw_payload | tojson(indent=2) }}</pre>
+                </details>
+            </td>
+            <td>
+                {% if op.system_prompt %}
+                <details>
+                    <summary>Apri</summary>
+                    <pre style="white-space: pre-wrap; font-size:0.85rem;">{{ op.system_prompt }}</pre>
+                </details>
+                {% else %}
+                <span class="muted">N/D</span>
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted">Nessuna operazione registrata.</p>
+{% endif %}
