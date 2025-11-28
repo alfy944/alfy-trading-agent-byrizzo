@@ -1,0 +1,52 @@
+<div class="card">
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l4.5 4.5L21 3" />
+    </svg>
+    <div>
+        <div class="muted">Saldo totale</div>
+        <div style="font-size:1.4rem;font-weight:700;">${{ '%.2f'|format(values[-1] if values else 0) }}</div>
+        {% if labels %}
+        <div class="muted">Ultimo aggiornamento: {{ labels[-1] }}</div>
+        {% else %}
+        <div class="muted">Nessun dato ancora disponibile.</div>
+        {% endif %}
+    </div>
+</div>
+
+{% if labels %}
+    <canvas id="balance-chart" style="width:100%;height:240px;margin-top:1rem;"></canvas>
+    <script>
+        (function() {
+            const ctx = document.getElementById('balance-chart').getContext('2d');
+            const existing = Chart.getChart(ctx);
+            if (existing) existing.destroy();
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: {{ labels | tojson }},
+                    datasets: [{
+                        label: 'Balance (USD)',
+                        data: {{ values | tojson }},
+                        borderColor: '#8ab4f8',
+                        backgroundColor: 'rgba(138, 180, 248, 0.12)',
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 2,
+                        pointBackgroundColor: '#8ab4f8'
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: { ticks: { color: '#cbd5e1' } },
+                        x: { ticks: { color: '#cbd5e1', maxRotation: 45, minRotation: 45 } }
+                    },
+                    plugins: { legend: { labels: { color: '#e2e8f0' } } },
+                    responsive: true,
+                    maintainAspectRatio: false,
+                }
+            });
+        })();
+    </script>
+{% else %}
+    <p class="muted">Nessun saldo registrato.</p>
+{% endif %}

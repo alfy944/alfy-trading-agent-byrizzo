@@ -291,4 +291,10 @@ async def ui_bot_operations(request: Request) -> HTMLResponse:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="localhost", port=8000, reload=True)
+    reload = os.getenv("RELOAD", "false").lower() == "true"
+    uvicorn.run(
+        "dashboard:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8000")),
+        reload=reload,
+    )
