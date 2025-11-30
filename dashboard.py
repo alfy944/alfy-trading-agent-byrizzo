@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, List, Optional
 
 import psycopg2
+from psycopg2 import errors
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
@@ -60,6 +61,18 @@ class OpenPosition(BaseModel):
     pnl_usd: Optional[float]
     leverage: Optional[str]
     snapshot_created_at: datetime
+
+
+class ClosedPosition(BaseModel):
+    id: int
+    closed_at: datetime
+    symbol: str
+    side: str
+    size: float
+    entry_price: Optional[float]
+    exit_price: Optional[float]
+    pnl_usd: Optional[float]
+    leverage: Optional[str]
 
 
 class BotOperation(BaseModel):
@@ -183,6 +196,51 @@ def get_open_positions() -> List[OpenPosition]:
     ]
 
 
+@app.get("/closed-positions", response_model=List[ClosedPosition])
+def get_closed_positions() -> List[ClosedPosition]:
+    """Restituisce le posizioni chiuse, ordinate dalla più recente."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT
+                        id,
+                        closed_at,
+                        symbol,
+                        side,
+                        size,
+                        entry_price,
+                        exit_price,
+                        pnl_usd,
+                        leverage
+                    FROM closed_positions
+                    ORDER BY closed_at DESC
+                    LIMIT 50;
+                    """
+                )
+            except errors.UndefinedTable:
+                return []
+
+            rows = cur.fetchall()
+
+    return [
+        ClosedPosition(
+            id=row[0],
+            closed_at=row[1],
+            symbol=row[2],
+            side=row[3],
+            size=float(row[4]),
+            entry_price=float(row[5]) if row[5] is not None else None,
+            exit_price=float(row[6]) if row[6] is not None else None,
+            pnl_usd=float(row[7]) if row[7] is not None else None,
+            leverage=row[8],
+        )
+        for row in rows
+    ]
+
+
 @app.get("/bot-operations", response_model=List[BotOperation])
 def get_bot_operations(
     limit: int = Query(
@@ -272,6 +330,17 @@ async def ui_open_positions(request: Request) -> HTMLResponse:
     positions = get_open_positions()
     return templates.TemplateResponse(
         "partials/open_positions_table.html",
+        {"request": request, "positions": positions},
+    )
+
+
+@app.get("/ui/closed-positions", response_class=HTMLResponse)
+async def ui_closed_positions(request: Request) -> HTMLResponse:
+    """Partial HTML con le posizioni chiuse (le ultime 50)."""
+
+    positions = get_closed_positions()
+    return templates.TemplateResponse(
+        "partials/closed_positions_table.html",
         {"request": request, "positions": positions},
     )
 
