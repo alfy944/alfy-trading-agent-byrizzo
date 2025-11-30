@@ -32,8 +32,8 @@ if reasoning_effort != "none":
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
-    response = client.responses.create(
+def _request_model(prompt: str, reasoning_payload: Optional[Dict[str, Any]]):
+    return client.responses.create(
         model=OPENAI_MODEL,
         input=prompt,
         text={
@@ -83,7 +83,7 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
             },
             "verbosity": "medium"
         },
-        reasoning=_reasoning_payload,
+        reasoning=reasoning_payload,
         max_output_tokens=MAX_OUTPUT_TOKENS,
         tools=[],
         store=True,
@@ -93,25 +93,50 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
         ]
     )
 
+
+def _extract_response_payload(response) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     # Prefer the parsed content from the Responses API (already schema-validated)
     content = response.output[0].content if response.output else None
-    if content and hasattr(content[0], "parsed") and content[0].parsed is not None:
-        return content[0].parsed
+    if content:
+        for chunk in content:
+            if hasattr(chunk, "parsed") and chunk.parsed is not None:
+                return chunk.parsed, None
 
     # Fallback: try to parse raw text even if the parsed payload is missing
     raw_text = getattr(response, "output_text", None)
-    if not raw_text and content and hasattr(content[0], "text"):
-        raw_text = content[0].text
+
+    if not raw_text and content:
+        for chunk in content:
+            if hasattr(chunk, "text") and chunk.text:
+                raw_text = chunk.text
+                break
 
     if isinstance(raw_text, bytes):
         raw_text = raw_text.decode("utf-8", "replace")
 
-    if not raw_text:
-        raise ValueError(
-            "Impossibile interpretare la risposta del modello: nessun testo restituito. "
-            f"Payload grezzo: {response.model_dump(mode='json')}"
-        )
+    return None, raw_text
 
+
+def _raise_no_text_error(response):
+    incomplete_reason = None
+    if getattr(response, "incomplete_details", None):
+        incomplete_reason = response.incomplete_details.get("reason")
+
+    if incomplete_reason == "max_output_tokens":
+        hint = (
+            "La risposta è stata interrotta per max_output_tokens prima che venisse generato testo. "
+            "Aumenta OPENAI_MAX_OUTPUT_TOKENS o imposta OPENAI_REASONING_EFFORT=none per evitare che il reasoning consumi tutti i token."
+        )
+    else:
+        hint = "Nessun testo è stato restituito dal modello."
+
+    raise ValueError(
+        f"Impossibile interpretare la risposta del modello: {hint} "
+        f"Payload grezzo: {response.model_dump(mode='json')}"
+    )
+
+
+def _parse_or_raise(raw_text: str):
     try:
         return json.loads(raw_text)
     except json.JSONDecodeError as exc:
@@ -119,3 +144,35 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
             "Impossibile interpretare la risposta del modello come JSON. "
             f"Output grezzo: {raw_text}"
         ) from exc
+
+
+def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
+    # First attempt with the configured reasoning payload
+    response = _request_model(prompt, _reasoning_payload)
+    parsed, raw_text = _extract_response_payload(response)
+
+    if parsed is not None:
+        return parsed
+
+    # If the model spent all tokens in reasoning, retry without reasoning to free tokens for the JSON
+    if (
+        raw_text in (None, "")
+        and _reasoning_payload is not None
+        and getattr(response, "incomplete_details", None)
+        and response.incomplete_details.get("reason") == "max_output_tokens"
+    ):
+        retry_response = _request_model(prompt, None)
+        parsed, raw_text = _extract_response_payload(retry_response)
+
+        if parsed is not None:
+            return parsed
+
+        if not raw_text:
+            _raise_no_text_error(retry_response)
+
+        return _parse_or_raise(raw_text)
+
+    if not raw_text:
+        _raise_no_text_error(response)
+
+    return _parse_or_raise(raw_text)

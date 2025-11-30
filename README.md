@@ -19,6 +19,8 @@ Il bot usa le API OpenAI per generare il segnale di trading. Le impostazioni pre
 
 Il riepilogo automatico del reasoning è disattivato per evitare token aggiuntivi: viene richiesto solo il livello di sforzo indicato.
 
+Se il modello esaurisce i token solo nel reasoning e non restituisce testo, il bot riprova automaticamente senza reasoning per liberare spazio alla risposta JSON. In alternativa aumenta `OPENAI_MAX_OUTPUT_TOKENS` o imposta `OPENAI_REASONING_EFFORT=none` se preferisci non usare ragionamento per contenere la spesa.
+
 Ricorda di configurare anche `OPENAI_API_KEY` nel file `.env`.
 
 ### Quanto costa ogni chiamata
