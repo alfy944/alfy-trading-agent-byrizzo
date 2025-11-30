@@ -94,16 +94,28 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
     )
 
     # Prefer the parsed content from the Responses API (already schema-validated)
-    try:
-        content = response.output[0].content if response.output else None
-        if content and hasattr(content[0], "parsed") and content[0].parsed is not None:
-            return content[0].parsed
+    content = response.output[0].content if response.output else None
+    if content and hasattr(content[0], "parsed") and content[0].parsed is not None:
+        return content[0].parsed
 
-        # Fallback: parse the raw text if parsed content is unavailable
-        raw_text = content[0].text if content else response.output_text
+    # Fallback: try to parse raw text even if the parsed payload is missing
+    raw_text = getattr(response, "output_text", None)
+    if not raw_text and content and hasattr(content[0], "text"):
+        raw_text = content[0].text
+
+    if isinstance(raw_text, bytes):
+        raw_text = raw_text.decode("utf-8", "replace")
+
+    if not raw_text:
+        raise ValueError(
+            "Impossibile interpretare la risposta del modello: nessun testo restituito. "
+            f"Payload grezzo: {response.model_dump(mode='json')}"
+        )
+
+    try:
         return json.loads(raw_text)
-    except Exception as exc:  # noqa: BLE001
+    except json.JSONDecodeError as exc:
         raise ValueError(
             "Impossibile interpretare la risposta del modello come JSON. "
-            f"Output grezzo: {getattr(response, 'output_text', '')}"
+            f"Output grezzo: {raw_text}"
         ) from exc
