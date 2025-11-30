@@ -27,7 +27,7 @@ if reasoning_effort not in ALLOWED_REASONING_EFFORT:
 
 _reasoning_payload: Optional[Dict[str, Any]] = None
 if reasoning_effort != "none":
-    _reasoning_payload = {"effort": reasoning_effort, "summary": "auto"}
+    _reasoning_payload = {"effort": reasoning_effort}
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 

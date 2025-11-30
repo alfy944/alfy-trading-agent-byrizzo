@@ -17,6 +17,8 @@ Il bot usa le API OpenAI per generare il segnale di trading. Le impostazioni pre
 - `OPENAI_REASONING_EFFORT`: livello di ragionamento (`none`, `low`, `medium`, `high`). Default `low` per ridurre consumi mantenendo una catena logica di base.
 - `OPENAI_MAX_OUTPUT_TOKENS`: numero massimo di token di risposta (default `220`) per evitare output troppo lunghi mantenendo spazio per un razionale sintetico.
 
+Il riepilogo automatico del reasoning è disattivato per evitare token aggiuntivi: viene richiesto solo il livello di sforzo indicato.
+
 Ricorda di configurare anche `OPENAI_API_KEY` nel file `.env`.
 
 ### Quanto costa ogni chiamata
