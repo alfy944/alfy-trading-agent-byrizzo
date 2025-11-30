@@ -117,6 +117,13 @@ def _extract_response_payload(response) -> tuple[Optional[Dict[str, Any]], Optio
     return None, raw_text
 
 
+def _is_max_output_incomplete(response) -> bool:
+    return bool(
+        getattr(response, "incomplete_details", None)
+        and response.incomplete_details.get("reason") == "max_output_tokens"
+    )
+
+
 def _raise_no_text_error(response):
     incomplete_reason = None
     if getattr(response, "incomplete_details", None):
@@ -136,6 +143,21 @@ def _raise_no_text_error(response):
     )
 
 
+def _raise_incomplete_text_error(raw_text: Optional[str], response):
+    hint = (
+        "La risposta si è interrotta per max_output_tokens prima di completare il JSON. "
+        "Aumenta OPENAI_MAX_OUTPUT_TOKENS o imposta OPENAI_REASONING_EFFORT=none per liberare spazio per il payload."
+    )
+
+    if raw_text:
+        raise ValueError(
+            f"Impossibile interpretare la risposta del modello: {hint} "
+            f"Output grezzo: {raw_text}"
+        )
+
+    _raise_no_text_error(response)
+
+
 def _parse_or_raise(raw_text: str):
     try:
         return json.loads(raw_text)
@@ -151,26 +173,31 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
     response = _request_model(prompt, _reasoning_payload)
     parsed, raw_text = _extract_response_payload(response)
 
+    first_incomplete = _is_max_output_incomplete(response)
+
     if parsed is not None:
         return parsed
 
-    # If the model spent all tokens in reasoning, retry without reasoning to free tokens for the JSON
-    if (
-        raw_text in (None, "")
-        and _reasoning_payload is not None
-        and getattr(response, "incomplete_details", None)
-        and response.incomplete_details.get("reason") == "max_output_tokens"
-    ):
+    # If the model spent all tokens in reasoning or truncated the JSON, retry without reasoning to free tokens
+    if _reasoning_payload is not None and first_incomplete:
         retry_response = _request_model(prompt, None)
         parsed, raw_text = _extract_response_payload(retry_response)
 
+        retry_incomplete = _is_max_output_incomplete(retry_response)
+
         if parsed is not None:
             return parsed
+
+        if retry_incomplete:
+            _raise_incomplete_text_error(raw_text, retry_response)
 
         if not raw_text:
             _raise_no_text_error(retry_response)
 
         return _parse_or_raise(raw_text)
+
+    if first_incomplete:
+        _raise_incomplete_text_error(raw_text, response)
 
     if not raw_text:
         _raise_no_text_error(response)
