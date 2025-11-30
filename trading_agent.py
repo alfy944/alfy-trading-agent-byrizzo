@@ -117,17 +117,24 @@ def _extract_response_payload(response) -> tuple[Optional[Dict[str, Any]], Optio
     return None, raw_text
 
 
+def _get_incomplete_reason(response) -> Optional[str]:
+    details = getattr(response, "incomplete_details", None)
+    if not details:
+        return None
+
+    if isinstance(details, dict):
+        return details.get("reason")
+
+    return getattr(details, "reason", None)
+
+
 def _is_max_output_incomplete(response) -> bool:
-    return bool(
-        getattr(response, "incomplete_details", None)
-        and response.incomplete_details.get("reason") == "max_output_tokens"
-    )
+    reason = _get_incomplete_reason(response)
+    return reason == "max_output_tokens"
 
 
 def _raise_no_text_error(response):
-    incomplete_reason = None
-    if getattr(response, "incomplete_details", None):
-        incomplete_reason = response.incomplete_details.get("reason")
+    incomplete_reason = _get_incomplete_reason(response)
 
     if incomplete_reason == "max_output_tokens":
         hint = (
