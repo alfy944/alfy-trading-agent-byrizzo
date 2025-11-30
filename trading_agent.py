@@ -59,7 +59,10 @@ def _request_model(prompt: str, reasoning_payload: Optional[Dict[str, Any]]):
                             "enum": [
                                 "BTC",
                                 "ETH",
-                                "SOL"
+                                "SOL",
+                                "BNB",
+                                "DOGE",
+                                "XRP"
                             ]
                         },
                         "reason": {
