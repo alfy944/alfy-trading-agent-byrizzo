@@ -90,36 +90,6 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
                         }
                     },
                     "required": ["operation", "symbol", "reason"],
-                    "allOf": [
-                        {
-                            "if": {
-                                "properties": {"operation": {"const": "open"}},
-                                "required": ["operation"]
-                            },
-                            "then": {
-                                "required": [
-                                    "direction",
-                                    "target_portion_of_balance"
-                                ],
-                                "properties": {
-                                    "leverage": {
-                                        "type": "number",
-                                        "minimum": 1,
-                                        "maximum": 10
-                                    }
-                                }
-                            }
-                        },
-                        {
-                            "if": {
-                                "properties": {"operation": {"const": "close"}},
-                                "required": ["operation"]
-                            },
-                            "then": {
-                                "required": ["direction"]
-                            }
-                        }
-                    ],
                     "additionalProperties": False
                 }
             },
