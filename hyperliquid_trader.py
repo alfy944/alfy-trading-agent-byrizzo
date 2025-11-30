@@ -54,29 +54,34 @@ class HyperLiquidTrader:
     #                            VALIDAZIONE INPUT
     # ----------------------------------------------------------------------
     def _validate_order_input(self, order_json: Dict[str, Any]):
-        required_fields = [
-            "operation",
-            "symbol",
-            "direction",
-            "target_portion_of_balance",
-            "leverage",
-            "reason",
-        ]
+        if "operation" not in order_json:
+            raise ValueError("Missing required field: operation")
 
-        for f in required_fields:
+        op = order_json["operation"]
+        if op not in ("open", "close", "hold"):
+            raise ValueError("operation must be 'open', 'close', or 'hold'")
+
+        required_always = ["symbol", "reason"]
+        for f in required_always:
             if f not in order_json:
                 raise ValueError(f"Missing required field: {f}")
 
-        if order_json["operation"] not in ("open", "close", "hold"):
-            raise ValueError("operation must be 'open', 'close', or 'hold'")
+        if op == "open":
+            for f in ("direction", "target_portion_of_balance"):
+                if f not in order_json:
+                    raise ValueError(f"Missing required field: {f}")
 
-        if order_json["direction"] not in ("long", "short"):
-            raise ValueError("direction must be 'long' or 'short'")
+            if order_json["direction"] not in ("long", "short"):
+                raise ValueError("direction must be 'long' or 'short'")
 
-        try:
-            float(order_json["target_portion_of_balance"])
-        except:
-            raise ValueError("target_portion_of_balance must be a number")
+            try:
+                float(order_json["target_portion_of_balance"])
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError("target_portion_of_balance must be a number") from exc
+
+        if op == "close" and "direction" in order_json:
+            if order_json["direction"] not in ("long", "short"):
+                raise ValueError("direction must be 'long' or 'short'")
 
     # ----------------------------------------------------------------------
     #                           MIN SIZE / TICK SIZE
@@ -169,8 +174,9 @@ class HyperLiquidTrader:
 
         op = order_json["operation"]
         symbol = order_json["symbol"]
-        direction = order_json["direction"]
-        portion = Decimal(str(order_json["target_portion_of_balance"]))
+        direction = order_json.get("direction")
+        portion_value = order_json.get("target_portion_of_balance", 0)
+        portion = Decimal(str(portion_value))
         leverage = int(order_json.get("leverage", 1))
 
         if op == "hold":
