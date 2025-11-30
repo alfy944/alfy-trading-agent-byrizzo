@@ -25,6 +25,16 @@
                 <!-- Posizioni aperte caricate via HTMX come card orizzontali -->
             </div>
         </article>
+
+        <article class="card">
+            <div style="margin-bottom:0.5rem;">
+                <h2><span class="accent-dot"></span> Posizioni chiuse</h2>
+                <p class="card-subtitle">Ultime posizioni chiuse registrate, ordinate dalla più recente.</p>
+            </div>
+            <div id="closed-positions-table" hx-get="/ui/closed-positions" hx-trigger="load">
+                <!-- Posizioni chiuse caricate via HTMX come tabella -->
+            </div>
+        </article>
     </div>
 
     <!-- Colonna destra: ultime operazioni dell'agente -->
