@@ -9,6 +9,39 @@ Trading Agent è un progetto open source ispirato a [Alpha Arena](https://nof1.a
 - **Modularità**: ogni componente (news, sentiment, indicatori, whale alert, forecasting) è gestito da moduli separati, facilmente estendibili.
 - **Ispirazione Alpha Arena**: il progetto prende spunto dall’approccio competitivo e AI-driven di Alpha Arena, con l’obiettivo di creare agenti sempre più performanti.
 
+## Configurazione OpenAI (ottimizzazione costi)
+
+Il bot usa le API OpenAI per generare il segnale di trading. Le impostazioni predefinite puntano a **gpt-5.1** per mantenere l'affidabilità del segnale, ma con limiti pensati per contenere i costi. Puoi regolare qualità e spesa con queste variabili d'ambiente:
+
+- `OPENAI_MODEL`: modello da usare per le chiamate. Default `gpt-5.1` (affidabilità più alta); puoi scegliere un modello più economico se vuoi ridurre ulteriormente la spesa.
+- `OPENAI_REASONING_EFFORT`: livello di ragionamento (`none`, `low`, `medium`, `high`). Default `low` per ridurre consumi mantenendo una catena logica di base.
+- `OPENAI_MAX_OUTPUT_TOKENS`: numero massimo di token di risposta (default `220`) per evitare output troppo lunghi mantenendo spazio per un razionale sintetico.
+
+Il riepilogo automatico del reasoning è disattivato per evitare token aggiuntivi: viene richiesto solo il livello di sforzo indicato.
+
+Se il modello esaurisce i token solo nel reasoning e non restituisce testo, il bot riprova automaticamente senza reasoning per liberare spazio alla risposta JSON. Se arriva un JSON troncato per `max_output_tokens`, il bot interrompe e chiede di aumentare il limite o ridurre il reasoning anziché fallire in parsing. In alternativa aumenta `OPENAI_MAX_OUTPUT_TOKENS` o imposta `OPENAI_REASONING_EFFORT=none` se preferisci non usare ragionamento per contenere la spesa.
+
+Ricorda di configurare anche `OPENAI_API_KEY` nel file `.env`.
+
+### Quanto costa ogni chiamata
+
+Il costo dipende dal modello scelto e dai token effettivamente elaborati (prompt + risposta). La formula di base è:
+
+```
+costo = (token_input / 1.000.000) * prezzo_input + (token_output / 1.000.000) * prezzo_output
+```
+
+Dove `prezzo_input` e `prezzo_output` sono le tariffe per milione di token indicate nel listino OpenAI per il modello scelto. Con la configurazione di default (`OPENAI_MODEL=gpt-5.1`, `OPENAI_MAX_OUTPUT_TOKENS=220`, `OPENAI_REASONING_EFFORT=low`), una chiamata tipica usa:
+
+- i token del prompt che passi (dipendono dalla lunghezza del testo inviato al modello);
+- al massimo ~220 token di risposta (limite impostato per contenere i costi mantenendo un breve razionale).
+
+Per sapere il costo effettivo per chiamata:
+
+1. Prendi le tariffe aggiornate da [openai.com/pricing](https://openai.com/pricing) per il modello che stai usando.
+2. Stima i token di input del tuo prompt (puoi usare strumenti di conteggio token come `tiktoken`).
+3. Moltiplica usando la formula sopra. Esempio: con 2.000 token di input e 300 di output, inserisci quei valori e le tariffe del modello che hai scelto per ottenere il costo della singola chiamata.
+
 ## Video di presentazione
 
 Guarda la presentazione del progetto su YouTube:
