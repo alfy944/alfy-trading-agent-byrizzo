@@ -93,4 +93,17 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
         ]
     )
 
-    return json.loads(response.output_text)
+    # Prefer the parsed content from the Responses API (already schema-validated)
+    try:
+        content = response.output[0].content if response.output else None
+        if content and hasattr(content[0], "parsed") and content[0].parsed is not None:
+            return content[0].parsed
+
+        # Fallback: parse the raw text if parsed content is unavailable
+        raw_text = content[0].text if content else response.output_text
+        return json.loads(raw_text)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(
+            "Impossibile interpretare la risposta del modello come JSON. "
+            f"Output grezzo: {getattr(response, 'output_text', '')}"
+        ) from exc
