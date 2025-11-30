@@ -62,26 +62,6 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
                                 "SOL"
                             ]
                         },
-                        "direction": {
-                            "type": "string",
-                            "description": "Trade direction: betting the price goes up (long) or down (short). For hold, may be omitted.",
-                            "enum": [
-                                "long",
-                                "short"
-                            ]
-                        },
-                        "target_portion_of_balance": {
-                            "type": "number",
-                            "description": "Fraction of (for open: balance, for close: position) to allocate/close; from 0.0 to 1.0 inclusive",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "leverage": {
-                            "type": "number",
-                            "description": "Leverage multiplier (risk/reward, 1-10). Only applicable for 'open'.",
-                            "minimum": 1,
-                            "maximum": 10
-                        },
                         "reason": {
                             "type": "string",
                             "description": "Brief explanation of the trading decision",
@@ -90,7 +70,15 @@ def previsione_trading_agent(prompt: str) -> Dict[str, Any]:
                         }
                     },
                     "required": ["operation", "symbol", "reason"],
-                    "additionalProperties": False
+                    "additionalProperties": {
+                        "description": "Optional fields like direction (long/short), target_portion_of_balance (0-1), leverage (1-10) and confidence score.",
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "number"},
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ]
+                    }
                 }
             },
             "verbosity": "medium"
