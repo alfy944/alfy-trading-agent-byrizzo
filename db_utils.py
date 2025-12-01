@@ -87,6 +87,24 @@ CREATE INDEX IF NOT EXISTS idx_open_positions_snapshot_id
     ON open_positions(snapshot_id);
 
 
+CREATE TABLE IF NOT EXISTS closed_positions (
+    id                  BIGSERIAL PRIMARY KEY,
+    snapshot_id         BIGINT REFERENCES account_snapshots(id) ON DELETE SET NULL,
+    closed_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    symbol              TEXT NOT NULL,
+    side                TEXT NOT NULL,
+    size                NUMERIC(30, 10),
+    entry_price         NUMERIC(30, 10),
+    exit_price          NUMERIC(30, 10),
+    pnl_usd             NUMERIC(30, 10),
+    leverage            TEXT,
+    raw_payload         JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_closed_positions_closed_at
+    ON closed_positions(closed_at DESC);
+
+
 CREATE TABLE IF NOT EXISTS ai_contexts (
     id              BIGSERIAL PRIMARY KEY,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -462,6 +480,21 @@ def log_account_status(account_status: Dict[str, Any]) -> int:
         raise ValueError("account_status deve contenere 'balance_usd'")
 
     open_positions_data = account_status.get("open_positions") or []
+    closed_positions_data = account_status.get("closed_positions") or []
+
+    def parse_closed_at(raw_value: Any) -> datetime:
+        """Converti timestamp variabile in datetime con fallback UTC now."""
+
+        if isinstance(raw_value, datetime):
+            return raw_value
+        if isinstance(raw_value, (int, float)):
+            return datetime.fromtimestamp(raw_value, tz=timezone.utc)
+        if isinstance(raw_value, str):
+            try:
+                return datetime.fromisoformat(raw_value)
+            except ValueError:
+                pass
+        return datetime.now(timezone.utc)
 
     def _write_snapshot() -> int:
         with get_connection() as conn:
@@ -509,6 +542,47 @@ def log_account_status(account_status: Dict[str, Any]) -> int:
                             size,
                             entry_price,
                             mark_price,
+                            pnl_usd,
+                            leverage,
+                            Json(pos),
+                        ),
+                    )
+
+                # Inserisci le posizioni chiuse eventuali
+                for pos in closed_positions_data:
+                    symbol = pos.get("symbol")
+                    side = pos.get("side")
+                    size = pos.get("size")
+                    entry_price = pos.get("entry_price")
+                    exit_price = pos.get("exit_price") or pos.get("exit")
+                    pnl_usd = pos.get("pnl_usd") or pos.get("pnl")
+                    leverage = pos.get("leverage")
+                    closed_at = parse_closed_at(pos.get("closed_at") or pos.get("ts"))
+
+                    cur.execute(
+                        """
+                        INSERT INTO closed_positions (
+                            snapshot_id,
+                            closed_at,
+                            symbol,
+                            side,
+                            size,
+                            entry_price,
+                            exit_price,
+                            pnl_usd,
+                            leverage,
+                            raw_payload
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                        """,
+                        (
+                            snapshot_id,
+                            closed_at,
+                            symbol,
+                            side,
+                            size,
+                            entry_price,
+                            exit_price,
                             pnl_usd,
                             leverage,
                             Json(pos),
