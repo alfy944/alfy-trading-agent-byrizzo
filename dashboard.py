@@ -317,9 +317,19 @@ async def ui_balance(request: Request) -> HTMLResponse:
     points = get_balance()
     labels = [p.timestamp.isoformat() for p in points]
     values = [p.balance_usd for p in points]
+    # Se il saldo iniziale non è valorizzato correttamente nel DB, mostriamo comunque
+    # una baseline di 999 USD per distinguere l'avvio dell'account da 0.
+    initial_balance = values[0] if values else 999.0
+    if initial_balance == 0:
+        initial_balance = 999.0
     return templates.TemplateResponse(
         "partials/balance_table.html",
-        {"request": request, "labels": labels, "values": values},
+        {
+            "request": request,
+            "labels": labels,
+            "values": values,
+            "initial_balance": initial_balance,
+        },
     )
 
 

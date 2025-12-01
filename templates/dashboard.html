@@ -31,7 +31,12 @@
                 <h2><span class="accent-dot"></span> Posizioni chiuse</h2>
                 <p class="card-subtitle">Ultime posizioni chiuse registrate, ordinate dalla più recente.</p>
             </div>
-            <div id="closed-positions-table" hx-get="/ui/closed-positions" hx-trigger="load">
+            <div
+                id="closed-positions-table"
+                hx-get="/ui/closed-positions"
+                hx-trigger="load, every 20s"
+                hx-swap="innerHTML"
+            >
                 <!-- Posizioni chiuse caricate via HTMX come tabella -->
             </div>
         </article>

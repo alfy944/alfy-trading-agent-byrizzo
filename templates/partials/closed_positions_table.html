@@ -1,44 +1,46 @@
 {% if positions %}
-<table role="grid">
-    <thead>
-        <tr>
-            <th>Chiusura</th>
-            <th>Symbol</th>
-            <th>Side</th>
-            <th>Size</th>
-            <th>Entry</th>
-            <th>Exit</th>
-            <th>PnL (USD)</th>
-            <th>Leverage</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for pos in positions %}
-        <tr>
-            <td>{{ pos.closed_at }}</td>
-            <td>{{ pos.symbol }}</td>
-            <td>
-                <span class="tag {% if pos.side|lower == 'long' %}tag-long{% elif pos.side|lower == 'short' %}tag-short{% endif %}">
-                    {{ pos.side|capitalize }}
-                </span>
-            </td>
-            <td>{{ '%.6f' | format(pos.size) }}</td>
-            <td>{% if pos.entry_price is not none %}{{ '%.4f' | format(pos.entry_price) }}{% else %}-{% endif %}</td>
-            <td>{% if pos.exit_price is not none %}{{ '%.4f' | format(pos.exit_price) }}{% else %}-{% endif %}</td>
-            <td>
-                {% if pos.pnl_usd is not none %}
-                    <strong class="{% if pos.pnl_usd >= 0 %}pnl-positive{% else %}pnl-negative{% endif %}">
-                        {{ '%.4f' | format(pos.pnl_usd) }}
-                    </strong>
-                {% else %}
-                    -
-                {% endif %}
-            </td>
-            <td>{{ pos.leverage or '-' }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div style="overflow-x:auto;">
+    <table role="grid">
+        <thead>
+            <tr>
+                <th>Chiusura</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Size</th>
+                <th>Entry</th>
+                <th>Exit</th>
+                <th>PnL (USD)</th>
+                <th>Leverage</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pos in positions %}
+            <tr>
+                <td>{{ pos.closed_at.strftime('%d/%m %H:%M') if pos.closed_at else '-' }}</td>
+                <td>{{ pos.symbol }}</td>
+                <td>
+                    <span class="tag {% if pos.side|lower == 'long' %}tag-long{% elif pos.side|lower == 'short' %}tag-short{% endif %}">
+                        {{ pos.side|capitalize }}
+                    </span>
+                </td>
+                <td>{{ '%.6f' | format(pos.size) }}</td>
+                <td>{% if pos.entry_price is not none %}{{ '%.4f' | format(pos.entry_price) }}{% else %}-{% endif %}</td>
+                <td>{% if pos.exit_price is not none %}{{ '%.4f' | format(pos.exit_price) }}{% else %}-{% endif %}</td>
+                <td>
+                    {% if pos.pnl_usd is not none %}
+                        <strong class="{% if pos.pnl_usd >= 0 %}pnl-positive{% else %}pnl-negative{% endif %}">
+                            {{ '%.4f' | format(pos.pnl_usd) }}
+                        </strong>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>{{ pos.leverage or '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 {% else %}
 <p>Nessuna posizione chiusa trovata.</p>
 {% endif %}
