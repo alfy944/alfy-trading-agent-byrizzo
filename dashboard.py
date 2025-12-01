@@ -221,7 +221,26 @@ def get_closed_positions() -> List[ClosedPosition]:
                     """
                 )
             except errors.UndefinedTable:
-                return []
+                from db_utils import init_db
+
+                init_db()
+                cur.execute(
+                    """
+                    SELECT
+                        id,
+                        closed_at,
+                        symbol,
+                        side,
+                        size,
+                        entry_price,
+                        exit_price,
+                        pnl_usd,
+                        leverage
+                    FROM closed_positions
+                    ORDER BY closed_at DESC
+                    LIMIT 50;
+                    """
+                )
 
             rows = cur.fetchall()
 
@@ -316,10 +335,40 @@ async def ui_balance(request: Request) -> HTMLResponse:
 
     points = get_balance()
     labels = [p.timestamp.isoformat() for p in points]
-    values = [p.balance_usd for p in points]
+    raw_values = [p.balance_usd for p in points]
+
+    # Escludi punti palesemente errati a 0 o negativi che abbasserebbero
+    # artificialmente la curva dell'equity.
+    filtered_pairs = [
+        (label, value)
+        for label, value in zip(labels, raw_values)
+        if value is not None and value > 0
+    ]
+    labels = [label for label, _ in filtered_pairs]
+    values = [float(value) for _, value in filtered_pairs]
+
+    # Se il saldo iniziale non è valorizzato correttamente nel DB, mostriamo comunque
+    # una baseline di 999 USD per distinguere l'avvio dell'account da 0 e
+    # allineiamo anche la prima osservazione del grafico allo stesso valore.
+    initial_balance = values[0] if values else 999.0
+    if initial_balance <= 0:
+        initial_balance = 999.0
+        if values:
+            values[0] = initial_balance
+
+    # In assenza totale di dati costruiamo un punto sintetico in modo che il grafico
+    # mostri subito il baseline.
+    if not values:
+        labels = [datetime.utcnow().isoformat()]
+        values = [initial_balance]
     return templates.TemplateResponse(
         "partials/balance_table.html",
-        {"request": request, "labels": labels, "values": values},
+        {
+            "request": request,
+            "labels": labels,
+            "values": values,
+            "initial_balance": initial_balance,
+        },
     )
 
 
