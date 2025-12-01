@@ -10,6 +10,7 @@
 
         const labels = {{ labels | tojson }};
         const data = {{ values | tojson }};
+        const baseline = {{ initial_balance | default(999.0) | tojson }};
 
         new Chart(ctx, {
             type: 'line',
@@ -27,7 +28,7 @@
                     },
                     {
                         label: 'Valore iniziale',
-                        data: Array(data.length).fill(data.length ? 999 : null),
+                        data: Array(data.length).fill(data.length ? baseline : null),
                         borderColor: '#9ca3af',
                         borderDash: [5, 4],
                         borderWidth: 1,
