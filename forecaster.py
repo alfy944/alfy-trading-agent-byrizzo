@@ -110,11 +110,11 @@ class HyperliquidForecaster:
         return df.to_string(index=False)
 
 # Funzione helper per mantenere compatibilità con il vecchio script
-def get_hyperliquid_forecasts(tickers=['BTC', 'ETH', 'SOL', 'BNB', 'DOGE', 'XRP'], testnet=True):
+def get_hyperliquid_forecasts(tickers=['BTC', 'ETH', 'SOL', 'BNB', 'DOGE'], testnet=True):
     forecaster = HyperliquidForecaster(testnet=testnet)
     return forecaster.get_crypto_forecasts(tickers)
 
-def get_crypto_forecasts(tickers=['BTC', 'ETH', 'SOL', 'BNB', 'DOGE', 'XRP'], testnet=True):
+def get_crypto_forecasts(tickers=['BTC', 'ETH', 'SOL', 'BNB', 'DOGE'], testnet=True):
     try:
         forecaster = HyperliquidForecaster(testnet=True)
         results = forecaster.forecast_many(tickers)

@@ -52,7 +52,7 @@ def _request_model(prompt: str, reasoning_payload: Optional[Dict[str, Any]]):
                         "symbol": {
                             "type": "string",
                             "description": "The cryptocurrency symbol to act on",
-                            "enum": ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"]
+                            "enum": ["BTC", "ETH", "SOL", "BNB", "DOGE"]
                         },
                         "reason": {
                             "type": "string",
