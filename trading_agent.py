@@ -47,23 +47,12 @@ def _request_model(prompt: str, reasoning_payload: Optional[Dict[str, Any]]):
                         "operation": {
                             "type": "string",
                             "description": "Type of trading operation to perform",
-                            "enum": [
-                                "open",
-                                "close",
-                                "hold"
-                            ]
+                            "enum": ["open", "close", "hold"]
                         },
                         "symbol": {
                             "type": "string",
                             "description": "The cryptocurrency symbol to act on",
-                            "enum": [
-                                "BTC",
-                                "ETH",
-                                "SOL",
-                                "BNB",
-                                "DOGE",
-                                "XRP"
-                            ]
+                            "enum": ["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP"]
                         },
                         "reason": {
                             "type": "string",
@@ -90,15 +79,24 @@ def _request_model(prompt: str, reasoning_payload: Optional[Dict[str, Any]]):
                         }
                     },
                     "required": ["operation", "symbol", "reason"],
-                    "allOf": [
+                    "oneOf": [
                         {
-                            "if": {
-                                "properties": {"operation": {"const": "open"}},
-                                "required": ["operation"]
+                            "properties": {
+                                "operation": {"const": "open"}
                             },
-                            "then": {
-                                "required": ["direction", "target_portion_of_balance"]
-                            }
+                            "required": [
+                                "operation",
+                                "symbol",
+                                "reason",
+                                "direction",
+                                "target_portion_of_balance"
+                            ]
+                        },
+                        {
+                            "properties": {
+                                "operation": {"enum": ["close", "hold"]}
+                            },
+                            "required": ["operation", "symbol", "reason"]
                         }
                     ],
                     "additionalProperties": {
