@@ -47,41 +47,46 @@ def _request_model(prompt: str, reasoning_payload: Optional[Dict[str, Any]]):
                         "operation": {
                             "type": "string",
                             "description": "Type of trading operation to perform",
-                            "enum": [
-                                "open",
-                                "close",
-                                "hold"
-                            ]
+                            "enum": ["open", "close", "hold"]
                         },
                         "symbol": {
                             "type": "string",
                             "description": "The cryptocurrency symbol to act on",
-                            "enum": [
-                                "BTC",
-                                "ETH",
-                                "SOL",
-                                "BNB",
-                                "DOGE",
-                                "XRP"
-                            ]
+                            "enum": ["BTC", "ETH", "SOL", "BNB", "DOGE"]
                         },
                         "reason": {
                             "type": "string",
                             "description": "Brief explanation of the trading decision",
                             "minLength": 1,
                             "maxLength": 300
+                        },
+                        "direction": {
+                            "type": "string",
+                            "description": "Provide long or short for all operations (used when opening positions)",
+                            "enum": ["long", "short"]
+                        },
+                        "target_portion_of_balance": {
+                            "type": "number",
+                            "description": "Portion of the account balance to risk (0-1); used when opening positions",
+                            "minimum": 0,
+                            "maximum": 1
+                        },
+                        "leverage": {
+                            "type": "integer",
+                            "description": "Leverage multiplier (default 1) to pair with the target balance portion",
+                            "minimum": 1,
+                            "maximum": 100
                         }
                     },
-                    "required": ["operation", "symbol", "reason"],
-                    "additionalProperties": {
-                        "description": "Optional fields like direction (long/short), target_portion_of_balance (0-1), leverage (1-10) and confidence score.",
-                        "anyOf": [
-                            {"type": "string"},
-                            {"type": "number"},
-                            {"type": "boolean"},
-                            {"type": "null"}
-                        ]
-                    }
+                    "required": [
+                        "operation",
+                        "symbol",
+                        "reason",
+                        "direction",
+                        "target_portion_of_balance",
+                        "leverage"
+                    ],
+                    "additionalProperties": False
                 }
             },
             "verbosity": "medium"
