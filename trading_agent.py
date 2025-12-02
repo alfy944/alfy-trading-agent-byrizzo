@@ -62,23 +62,30 @@ def _request_model(prompt: str, reasoning_payload: Optional[Dict[str, Any]]):
                         },
                         "direction": {
                             "type": "string",
-                            "description": "Required when operation is 'open'; choose long or short",
+                            "description": "Provide long or short for all operations (used when opening positions)",
                             "enum": ["long", "short"]
                         },
                         "target_portion_of_balance": {
                             "type": "number",
-                            "description": "Required when operation is 'open'; portion of the account balance to risk (0-1)",
+                            "description": "Portion of the account balance to risk (0-1); used when opening positions",
                             "minimum": 0,
                             "maximum": 1
                         },
                         "leverage": {
                             "type": "integer",
-                            "description": "Optional leverage multiplier for opens (default 1)",
+                            "description": "Leverage multiplier (default 1) to pair with the target balance portion",
                             "minimum": 1,
                             "maximum": 100
                         }
                     },
-                    "required": ["operation", "symbol", "reason"],
+                    "required": [
+                        "operation",
+                        "symbol",
+                        "reason",
+                        "direction",
+                        "target_portion_of_balance",
+                        "leverage"
+                    ],
                     "additionalProperties": False
                 }
             },
