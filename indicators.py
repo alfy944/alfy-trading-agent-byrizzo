@@ -47,6 +47,16 @@ class CryptoTechnicalAnalysisHL:
         if self._supported_tickers and coin.upper() not in self._supported_tickers:
             raise ValueError(f"Ticker {coin.upper()} non disponibile su Hyperliquid")
 
+    def is_supported_ticker(self, coin: str) -> bool:
+        """Return True if ticker appears in the cached exchange universe."""
+        self._load_supported_tickers()
+
+        if not self._supported_tickers:
+            # If we couldn't load metadata, assume the ticker might still be valid.
+            return True
+
+        return coin.upper() in self._supported_tickers
+
     # ==============================
     #       FETCH OHLCV (HL)
     # ==============================
@@ -338,6 +348,11 @@ def analyze_multiple_tickers(tickers: List[str], testnet: bool = True) -> str:
     datas = []
     data = None
     for ticker in tickers:
+        if not analyzer.is_supported_ticker(ticker):
+            print(
+                f"Ticker {ticker.upper()} non disponibile su Hyperliquid: rimosso dall'analisi"
+            )
+            continue
         try:
             data = analyzer.get_complete_analysis(ticker)
             datas.append(data)
