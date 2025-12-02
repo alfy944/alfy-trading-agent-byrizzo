@@ -1,6 +1,7 @@
 import json
+import time
 from decimal import Decimal, ROUND_DOWN
-from typing import Dict, Any
+from typing import Dict, Any, Callable, Optional
 
 import eth_account
 from eth_account.signers.local import LocalAccount
@@ -8,6 +9,7 @@ from eth_account.signers.local import LocalAccount
 from hyperliquid.info import Info
 from hyperliquid.exchange import Exchange
 from hyperliquid.utils import constants
+from hyperliquid.utils.error import ClientError
 
 
 class HyperLiquidTrader:
@@ -43,7 +45,37 @@ class HyperLiquidTrader:
         self.exchange = Exchange(account, base_url, account_address=account_address)
 
         # cache meta per tick-size e min-size
-        self.meta = self.info.meta()
+        self.meta = self._retry_info_call(self.info.meta)
+
+    def _retry_info_call(
+        self,
+        fn: Callable,
+        *args: Any,
+        retries: int = 3,
+        backoff: float = 1.5,
+        **kwargs: Any,
+    ) -> Optional[Any]:
+        """Esegue una chiamata Info con backoff per mitigare errori 429."""
+
+        for attempt in range(retries):
+            try:
+                return fn(*args, **kwargs)
+            except ClientError as exc:
+                if exc.status_code != 429 or attempt == retries - 1:
+                    raise
+
+                sleep_for = backoff**attempt
+                print(
+                    f"⚠️ Rate limit Hyperliquid (429). Ritento tra {sleep_for:.1f}s..."
+                )
+                time.sleep(sleep_for)
+            except Exception:
+                if attempt == retries - 1:
+                    raise
+
+                sleep_for = backoff**attempt
+                time.sleep(sleep_for)
+        return None
 
     def _to_hl_size(self, size_decimal: Decimal) -> str:
         # HL accetta max 8 decimali
@@ -114,7 +146,7 @@ class HyperLiquidTrader:
     def get_current_leverage(self, symbol: str) -> Dict[str, Any]:
         """Ottieni info sulla leva corrente per un simbolo"""
         try:
-            user_state = self.info.user_state(self.account_address)
+            user_state = self._retry_info_call(self.info.user_state, self.account_address)
             
             # Cerca nelle posizioni aperte
             for position in user_state.get('assetPositions', []):
@@ -207,7 +239,7 @@ class HyperLiquidTrader:
         print(f"📊 Leva attuale per {symbol}: {current_leverage_info}")
 
         # Ora procedi con l'apertura della posizione
-        user = self.info.user_state(self.account_address)
+        user = self._retry_info_call(self.info.user_state, self.account_address)
         margin_summary = user.get("marginSummary", {}) or {}
         balance_value = margin_summary.get("accountValue", 0)
 
@@ -227,7 +259,7 @@ class HyperLiquidTrader:
 
         notional = balance_usd * portion * Decimal(str(leverage))
 
-        mids = self.info.all_mids()
+        mids = self._retry_info_call(self.info.all_mids)
         if symbol not in mids:
             raise RuntimeError(f"Symbol {symbol} non presente su HL")
 
@@ -293,10 +325,10 @@ class HyperLiquidTrader:
     #                           STATO ACCOUNT
     # ----------------------------------------------------------------------
     def get_account_status(self) -> Dict[str, Any]:
-        data = self.info.user_state(self.account_address)
+        data = self._retry_info_call(self.info.user_state, self.account_address)
         balance = float(data["marginSummary"]["accountValue"])
 
-        mids = self.info.all_mids()
+        mids = self._retry_info_call(self.info.all_mids)
         positions = []
 
         # Gestisci il formato corretto dei dati
