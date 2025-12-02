@@ -79,35 +79,7 @@ def _request_model(prompt: str, reasoning_payload: Optional[Dict[str, Any]]):
                         }
                     },
                     "required": ["operation", "symbol", "reason"],
-                    "oneOf": [
-                        {
-                            "properties": {
-                                "operation": {"const": "open"}
-                            },
-                            "required": [
-                                "operation",
-                                "symbol",
-                                "reason",
-                                "direction",
-                                "target_portion_of_balance"
-                            ]
-                        },
-                        {
-                            "properties": {
-                                "operation": {"enum": ["close", "hold"]}
-                            },
-                            "required": ["operation", "symbol", "reason"]
-                        }
-                    ],
-                    "additionalProperties": {
-                        "description": "Optional fields like direction (long/short), target_portion_of_balance (0-1), leverage (1-10) and confidence score.",
-                        "anyOf": [
-                            {"type": "string"},
-                            {"type": "number"},
-                            {"type": "boolean"},
-                            {"type": "null"}
-                        ]
-                    }
+                    "additionalProperties": False
                 }
             },
             "verbosity": "medium"
