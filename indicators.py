@@ -26,6 +26,26 @@ class CryptoTechnicalAnalysisHL:
     def __init__(self, testnet: bool = True):
         base_url = constants.TESTNET_API_URL if testnet else constants.MAINNET_API_URL
         self.info = Info(base_url, skip_ws=True)
+        self._supported_tickers = None
+
+    def _load_supported_tickers(self) -> None:
+        """Cache the list of supported Hyperliquid tickers to avoid KeyError."""
+        if self._supported_tickers is not None:
+            return
+
+        try:
+            meta = self.info.meta()
+            universe = meta.get("universe", []) if isinstance(meta, dict) else []
+            self._supported_tickers = {asset.get("name", "").upper() for asset in universe}
+        except Exception:
+            # If metadata is unavailable, leave cache empty so we don't block requests.
+            self._supported_tickers = set()
+
+    def _validate_ticker(self, coin: str) -> None:
+        self._load_supported_tickers()
+
+        if self._supported_tickers and coin.upper() not in self._supported_tickers:
+            raise ValueError(f"Ticker {coin.upper()} non disponibile su Hyperliquid")
 
     # ==============================
     #       FETCH OHLCV (HL)
@@ -66,6 +86,8 @@ class CryptoTechnicalAnalysisHL:
         Returns:
             DataFrame con colonne: timestamp, open, high, low, close, volume
         """
+        self._validate_ticker(coin)
+
         if interval not in INTERVAL_TO_MS:
             raise ValueError(f"Interval '{interval}' non supportato in INTERVAL_TO_MS")
 
@@ -160,6 +182,8 @@ class CryptoTechnicalAnalysisHL:
     # ==============================
     def get_complete_analysis(self, ticker: str) -> Dict:
         coin = ticker.upper()
+
+        self._validate_ticker(coin)
 
         # 1) DATI 15 MINUTI (intraday principale)
         df_15m = self.fetch_ohlcv(coin, "15m", limit=200)
