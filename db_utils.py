@@ -691,300 +691,306 @@ def log_bot_operation(
     sentiment_norm = _normalize_json_arg(sentiment) if sentiment is not None else None
     forecasts_norm = _normalize_json_arg(forecasts) if forecasts is not None else None
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            # 1) Crea il contesto generale
-            cur.execute(
-                """
-                INSERT INTO ai_contexts (system_prompt)
-                VALUES (%s)
-                RETURNING id;
-                """,
-                (system_prompt,),
-            )
-            context_id = cur.fetchone()[0]
-            if indicators is not None:
-                for indicator in indicators:
-                    indicators_norm = _normalize_json_arg(indicator) if indicator is not None else None
-
-                    # 2) Dettagli per tipo di input, se presenti
-                    if indicators_norm is not None:
-                        # indicators_norm può essere:
-                        # - un dict con chiave "ticker" (un solo ticker)
-                        # - un dict {ticker: {...}}
-                        # - una lista di dict
-                        indicator_items: List[Dict[str, Any]] = []
-
-                        if isinstance(indicators_norm, dict):
-                            if "ticker" in indicators_norm:
-                                indicator_items = [indicators_norm]
-                            else:
-                                for tkr, data in indicators_norm.items():
-                                    if isinstance(data, dict):
-                                        item = {"ticker": tkr}
-                                        item.update(data)
-                                        indicator_items.append(item)
-                        elif isinstance(indicators_norm, list):
-                            indicator_items = [x for x in indicators_norm if isinstance(x, dict)]
-
-                        for item in indicator_items:
-                            ticker = item.get("ticker")
-                            if not ticker:
-                                continue
-
-                            ts = None
-                            ts_raw = item.get("timestamp")
-                            if isinstance(ts_raw, str):
-                                try:
-                                    ts = datetime.fromisoformat(ts_raw)
-                                except Exception:
-                                    ts = None
-
-                            current = item.get("current") or {}
-                            pivot = item.get("pivot_points") or {}
-                            derivatives = item.get("derivatives") or {}
-                            intraday = item.get("intraday") or {}
-                            lt15 = item.get("longer_term_15m") or {}
-
-                            # Volume: "Bid Vol: 1018.14, Ask Vol: 350.96"
-                            volume_str = item.get("volume") or ""
-                            volume_bid = None
-                            volume_ask = None
-                            if isinstance(volume_str, str) and "Bid Vol" in volume_str:
-                                try:
-                                    parts = volume_str.replace("Bid Vol:", "").split("Ask Vol:")
-                                    bid_str = parts[0].strip().strip(",")
-                                    ask_str = parts[1].strip()
-                                    volume_bid = float(bid_str)
-                                    volume_ask = float(ask_str)
-                                except Exception:
-                                    volume_bid = None
-                                    volume_ask = None
-
-                            # CORREZIONE: Query con 30 placeholder correttamente formattati
-                            cur.execute(
-                                """
-                                INSERT INTO indicators_contexts (
-                                    context_id,
-                                    ticker,
-                                    ts,
-                                    price,
-                                    ema20,
-                                    macd,
-                                    rsi_7,
-                                    volume_bid,
-                                    volume_ask,
-                                    pp,
-                                    s1,
-                                    s2,
-                                    r1,
-                                    r2,
-                                    open_interest_latest,
-                                    open_interest_average,
-                                    funding_rate,
-                                    ema20_15m,
-                                    ema50_15m,
-                                    atr3_15m,
-                                    atr14_15m,
-                                    volume_15m_current,
-                                    volume_15m_average,
-                                    intraday_mid_prices,
-                                    intraday_ema20_series,
-                                    intraday_macd_series,
-                                    intraday_rsi7_series,
-                                    intraday_rsi14_series,
-                                    lt15m_macd_series,
-                                    lt15m_rsi14_series
+    def _write_operation():
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # 1) Crea il contesto generale
+                cur.execute(
+                    """
+                    INSERT INTO ai_contexts (system_prompt)
+                    VALUES (%s)
+                    RETURNING id;
+                    """,
+                    (system_prompt,),
+                )
+                context_id = cur.fetchone()[0]
+                if indicators is not None:
+                    for indicator in indicators:
+                        indicators_norm = _normalize_json_arg(indicator) if indicator is not None else None
+    
+                        # 2) Dettagli per tipo di input, se presenti
+                        if indicators_norm is not None:
+                            # indicators_norm può essere:
+                            # - un dict con chiave "ticker" (un solo ticker)
+                            # - un dict {ticker: {...}}
+                            # - una lista di dict
+                            indicator_items: List[Dict[str, Any]] = []
+    
+                            if isinstance(indicators_norm, dict):
+                                if "ticker" in indicators_norm:
+                                    indicator_items = [indicators_norm]
+                                else:
+                                    for tkr, data in indicators_norm.items():
+                                        if isinstance(data, dict):
+                                            item = {"ticker": tkr}
+                                            item.update(data)
+                                            indicator_items.append(item)
+                            elif isinstance(indicators_norm, list):
+                                indicator_items = [x for x in indicators_norm if isinstance(x, dict)]
+    
+                            for item in indicator_items:
+                                ticker = item.get("ticker")
+                                if not ticker:
+                                    continue
+    
+                                ts = None
+                                ts_raw = item.get("timestamp")
+                                if isinstance(ts_raw, str):
+                                    try:
+                                        ts = datetime.fromisoformat(ts_raw)
+                                    except Exception:
+                                        ts = None
+    
+                                current = item.get("current") or {}
+                                pivot = item.get("pivot_points") or {}
+                                derivatives = item.get("derivatives") or {}
+                                intraday = item.get("intraday") or {}
+                                lt15 = item.get("longer_term_15m") or {}
+    
+                                # Volume: "Bid Vol: 1018.14, Ask Vol: 350.96"
+                                volume_str = item.get("volume") or ""
+                                volume_bid = None
+                                volume_ask = None
+                                if isinstance(volume_str, str) and "Bid Vol" in volume_str:
+                                    try:
+                                        parts = volume_str.replace("Bid Vol:", "").split("Ask Vol:")
+                                        bid_str = parts[0].strip().strip(",")
+                                        ask_str = parts[1].strip()
+                                        volume_bid = float(bid_str)
+                                        volume_ask = float(ask_str)
+                                    except Exception:
+                                        volume_bid = None
+                                        volume_ask = None
+    
+                                # CORREZIONE: Query con 30 placeholder correttamente formattati
+                                cur.execute(
+                                    """
+                                    INSERT INTO indicators_contexts (
+                                        context_id,
+                                        ticker,
+                                        ts,
+                                        price,
+                                        ema20,
+                                        macd,
+                                        rsi_7,
+                                        volume_bid,
+                                        volume_ask,
+                                        pp,
+                                        s1,
+                                        s2,
+                                        r1,
+                                        r2,
+                                        open_interest_latest,
+                                        open_interest_average,
+                                        funding_rate,
+                                        ema20_15m,
+                                        ema50_15m,
+                                        atr3_15m,
+                                        atr14_15m,
+                                        volume_15m_current,
+                                        volume_15m_average,
+                                        intraday_mid_prices,
+                                        intraday_ema20_series,
+                                        intraday_macd_series,
+                                        intraday_rsi7_series,
+                                        intraday_rsi14_series,
+                                        lt15m_macd_series,
+                                        lt15m_rsi14_series
+                                    )
+                                    VALUES (
+                                        %s, %s, %s,
+                                        %s, %s, %s, %s,
+                                        %s, %s,
+                                        %s, %s, %s, %s, %s,
+                                        %s, %s, %s,
+                                        %s, %s, %s, %s,
+                                        %s, %s,
+                                        %s, %s, %s, %s, %s, %s, %s
+                                    );
+                                    """,
+                                    (
+                                        context_id,
+                                        ticker,
+                                        ts,
+                                        _to_plain_number(current.get("price")),
+                                        _to_plain_number(current.get("ema20")),
+                                        _to_plain_number(current.get("macd")),
+                                        _to_plain_number(current.get("rsi_7")),
+                                        _to_plain_number(volume_bid),
+                                        _to_plain_number(volume_ask),
+                                        _to_plain_number(pivot.get("pp")),
+                                        _to_plain_number(pivot.get("s1")),
+                                        _to_plain_number(pivot.get("s2")),
+                                        _to_plain_number(pivot.get("r1")),
+                                        _to_plain_number(pivot.get("r2")),
+                                        _to_plain_number(derivatives.get("open_interest_latest")),
+                                        _to_plain_number(derivatives.get("open_interest_average")),
+                                        _to_plain_number(derivatives.get("funding_rate")),
+                                        _to_plain_number(lt15.get("ema_20_current")),
+                                        _to_plain_number(lt15.get("ema_50_current")),
+                                        _to_plain_number(lt15.get("atr_3_current")),
+                                        _to_plain_number(lt15.get("atr_14_current")),
+                                        _to_plain_number(lt15.get("volume_current")),
+                                        _to_plain_number(lt15.get("volume_average")),
+                                        Json(_normalize_for_json(intraday.get("mid_prices"))) if intraday.get("mid_prices") is not None else None,
+                                        Json(_normalize_for_json(intraday.get("ema_20"))) if intraday.get("ema_20") is not None else None,
+                                        Json(_normalize_for_json(intraday.get("macd"))) if intraday.get("macd") is not None else None,
+                                        Json(_normalize_for_json(intraday.get("rsi_7"))) if intraday.get("rsi_7") is not None else None,
+                                        Json(_normalize_for_json(intraday.get("rsi_14"))) if intraday.get("rsi_14") is not None else None,
+                                        Json(_normalize_for_json(lt15.get("macd_series"))) if lt15.get("macd_series") is not None else None,
+                                        Json(_normalize_for_json(lt15.get("rsi_14_series"))) if lt15.get("rsi_14_series") is not None else None,
+                                    ),
                                 )
-                                VALUES (
-                                    %s, %s, %s,
-                                    %s, %s, %s, %s,
-                                    %s, %s,
-                                    %s, %s, %s, %s, %s,
-                                    %s, %s, %s,
-                                    %s, %s, %s, %s,
-                                    %s, %s,
-                                    %s, %s, %s, %s, %s, %s, %s
-                                );
-                                """,
-                                (
-                                    context_id,
-                                    ticker,
-                                    ts,
-                                    _to_plain_number(current.get("price")),
-                                    _to_plain_number(current.get("ema20")),
-                                    _to_plain_number(current.get("macd")),
-                                    _to_plain_number(current.get("rsi_7")),
-                                    _to_plain_number(volume_bid),
-                                    _to_plain_number(volume_ask),
-                                    _to_plain_number(pivot.get("pp")),
-                                    _to_plain_number(pivot.get("s1")),
-                                    _to_plain_number(pivot.get("s2")),
-                                    _to_plain_number(pivot.get("r1")),
-                                    _to_plain_number(pivot.get("r2")),
-                                    _to_plain_number(derivatives.get("open_interest_latest")),
-                                    _to_plain_number(derivatives.get("open_interest_average")),
-                                    _to_plain_number(derivatives.get("funding_rate")),
-                                    _to_plain_number(lt15.get("ema_20_current")),
-                                    _to_plain_number(lt15.get("ema_50_current")),
-                                    _to_plain_number(lt15.get("atr_3_current")),
-                                    _to_plain_number(lt15.get("atr_14_current")),
-                                    _to_plain_number(lt15.get("volume_current")),
-                                    _to_plain_number(lt15.get("volume_average")),
-                                    Json(_normalize_for_json(intraday.get("mid_prices"))) if intraday.get("mid_prices") is not None else None,
-                                    Json(_normalize_for_json(intraday.get("ema_20"))) if intraday.get("ema_20") is not None else None,
-                                    Json(_normalize_for_json(intraday.get("macd"))) if intraday.get("macd") is not None else None,
-                                    Json(_normalize_for_json(intraday.get("rsi_7"))) if intraday.get("rsi_7") is not None else None,
-                                    Json(_normalize_for_json(intraday.get("rsi_14"))) if intraday.get("rsi_14") is not None else None,
-                                    Json(_normalize_for_json(lt15.get("macd_series"))) if lt15.get("macd_series") is not None else None,
-                                    Json(_normalize_for_json(lt15.get("rsi_14_series"))) if lt15.get("rsi_14_series") is not None else None,
-                                ),
-                            )
-
-
-
-            if news_text:
-                cur.execute(
-                    """
-                    INSERT INTO news_contexts (context_id, news_text)
-                    VALUES (%s, %s);
-                    """,
-                    (context_id, news_text),
-                )
-
-            if sentiment_norm is not None:
-                value = sentiment_norm.get("valore")
-                classification = sentiment_norm.get("classificazione")
-                ts_raw = sentiment_norm.get("timestamp")
-                try:
-                    ts_val = int(ts_raw) if ts_raw is not None else None
-                except Exception:
-                    ts_val = None
-
-                cur.execute(
-                    """
-                    INSERT INTO sentiment_contexts (context_id, value, classification, sentiment_timestamp, raw)
-                    VALUES (%s, %s, %s, %s, %s);
-                    """,
-                    (context_id, value, classification, ts_val, Json(sentiment_norm)),
-                )
-
-
-            if forecasts_norm is not None:
-                forecast_items: List[Dict[str, Any]] = []
-                if isinstance(forecasts_norm, list):
-                    forecast_items = [x for x in forecasts_norm if isinstance(x, dict)]
-                elif isinstance(forecasts_norm, dict):
-                    forecast_items = [forecasts_norm]
-
-                for f in forecast_items:
-                    ticker = f.get("Ticker") or f.get("ticker")
-                    timeframe = f.get("Timeframe") or f.get("timeframe")
-                    last_price = f.get("Ultimo Prezzo") or f.get("last_price")
-                    prediction = f.get("Previsione") or f.get("prediction")
-                    lower = f.get("Limite Inferiore") or f.get("lower_bound")
-                    upper = f.get("Limite Superiore") or f.get("upper_bound")
-                    change_pct = f.get("Variazione %") or f.get("change_pct")
-                    ts_raw = f.get("Timestamp Previsione") or f.get("forecast_timestamp")
+    
+    
+    
+                if news_text:
+                    cur.execute(
+                        """
+                        INSERT INTO news_contexts (context_id, news_text)
+                        VALUES (%s, %s);
+                        """,
+                        (context_id, news_text),
+                    )
+    
+                if sentiment_norm is not None:
+                    value = sentiment_norm.get("valore")
+                    classification = sentiment_norm.get("classificazione")
+                    ts_raw = sentiment_norm.get("timestamp")
                     try:
                         ts_val = int(ts_raw) if ts_raw is not None else None
                     except Exception:
                         ts_val = None
-
-                    if not ticker or not timeframe:
-                        continue
-
+    
                     cur.execute(
                         """
-                        INSERT INTO forecasts_contexts (
-                            context_id,
-                            ticker,
-                            timeframe,
-                            last_price,
-                            prediction,
-                            lower_bound,
-                            upper_bound,
-                            change_pct,
-                            forecast_timestamp,
-                            raw
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                        INSERT INTO sentiment_contexts (context_id, value, classification, sentiment_timestamp, raw)
+                        VALUES (%s, %s, %s, %s, %s);
                         """,
-                        (
-                            context_id,
-                            ticker,
-                            timeframe,
-                            _to_plain_number(last_price),
-                            _to_plain_number(prediction),
-                            _to_plain_number(lower),
-                            _to_plain_number(upper),
-                            _to_plain_number(change_pct),
-                            ts_val,
-                            Json(_normalize_for_json(f)),
-                        ),
+                        (context_id, value, classification, ts_val, Json(sentiment_norm)),
                     )
-
-
-            # 3) Operazione del bot collegata al contesto
-            cur.execute(
-                """
-                INSERT INTO bot_operations (
-                    context_id,
-                    operation,
-                    symbol,
-                    direction,
-                    target_portion_of_balance,
-                    leverage,
-                    reason_for_entry,
-                    atr_at_entry,
-                    forecast_strength,
-                    trend_state,
-                    leverage_chosen,
-                    outcome,
-                    quality_score,
-                    confidence_score,
-                    adaptive_position_size,
-                    support_level,
-                    resistance_level,
-                    break_even_trigger,
-                    break_even_allowed,
-                    soft_stop_loss,
-                    atr_pct,
-                    raw_payload
+    
+    
+                if forecasts_norm is not None:
+                    forecast_items: List[Dict[str, Any]] = []
+                    if isinstance(forecasts_norm, list):
+                        forecast_items = [x for x in forecasts_norm if isinstance(x, dict)]
+                    elif isinstance(forecasts_norm, dict):
+                        forecast_items = [forecasts_norm]
+    
+                    for f in forecast_items:
+                        ticker = f.get("Ticker") or f.get("ticker")
+                        timeframe = f.get("Timeframe") or f.get("timeframe")
+                        last_price = f.get("Ultimo Prezzo") or f.get("last_price")
+                        prediction = f.get("Previsione") or f.get("prediction")
+                        lower = f.get("Limite Inferiore") or f.get("lower_bound")
+                        upper = f.get("Limite Superiore") or f.get("upper_bound")
+                        change_pct = f.get("Variazione %") or f.get("change_pct")
+                        ts_raw = f.get("Timestamp Previsione") or f.get("forecast_timestamp")
+                        try:
+                            ts_val = int(ts_raw) if ts_raw is not None else None
+                        except Exception:
+                            ts_val = None
+    
+                        if not ticker or not timeframe:
+                            continue
+    
+                        cur.execute(
+                            """
+                            INSERT INTO forecasts_contexts (
+                                context_id,
+                                ticker,
+                                timeframe,
+                                last_price,
+                                prediction,
+                                lower_bound,
+                                upper_bound,
+                                change_pct,
+                                forecast_timestamp,
+                                raw
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                            """,
+                            (
+                                context_id,
+                                ticker,
+                                timeframe,
+                                _to_plain_number(last_price),
+                                _to_plain_number(prediction),
+                                _to_plain_number(lower),
+                                _to_plain_number(upper),
+                                _to_plain_number(change_pct),
+                                ts_val,
+                                Json(_normalize_for_json(f)),
+                            ),
+                        )
+    
+    
+                # 3) Operazione del bot collegata al contesto
+                cur.execute(
+                    """
+                    INSERT INTO bot_operations (
+                        context_id,
+                        operation,
+                        symbol,
+                        direction,
+                        target_portion_of_balance,
+                        leverage,
+                        reason_for_entry,
+                        atr_at_entry,
+                        forecast_strength,
+                        trend_state,
+                        leverage_chosen,
+                        outcome,
+                        quality_score,
+                        confidence_score,
+                        adaptive_position_size,
+                        support_level,
+                        resistance_level,
+                        break_even_trigger,
+                        break_even_allowed,
+                        soft_stop_loss,
+                        atr_pct,
+                        raw_payload
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (
+                        context_id,
+                        operation,
+                        symbol,
+                        direction,
+                        _to_plain_number(target_portion_of_balance),
+                        _to_plain_number(leverage),
+                        operation_payload.get("reason_for_entry") or operation_payload.get("reason"),
+                        _to_plain_number(operation_payload.get("atr_at_entry")),
+                        _to_plain_number(operation_payload.get("forecast_strength")),
+                        operation_payload.get("trend_state"),
+                        _to_plain_number(operation_payload.get("leverage_chosen")),
+                        operation_payload.get("outcome"),
+                        _to_plain_number(operation_payload.get("quality_score")),
+                        _to_plain_number(operation_payload.get("confidence_score")),
+                        _to_plain_number(operation_payload.get("adaptive_position_size")),
+                        _to_plain_number(operation_payload.get("support_level")),
+                        _to_plain_number(operation_payload.get("resistance_level")),
+                        _to_plain_number(operation_payload.get("break_even_trigger")),
+                        operation_payload.get("break_even_allowed"),
+                        _to_plain_number(operation_payload.get("soft_stop_loss")),
+                        _to_plain_number(operation_payload.get("atr_pct")),
+                        Json(_normalize_for_json(operation_payload)),
+                    ),
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id;
-                """,
-                (
-                    context_id,
-                    operation,
-                    symbol,
-                    direction,
-                    _to_plain_number(target_portion_of_balance),
-                    _to_plain_number(leverage),
-                    operation_payload.get("reason_for_entry") or operation_payload.get("reason"),
-                    _to_plain_number(operation_payload.get("atr_at_entry")),
-                    _to_plain_number(operation_payload.get("forecast_strength")),
-                    operation_payload.get("trend_state"),
-                    _to_plain_number(operation_payload.get("leverage_chosen")),
-                    operation_payload.get("outcome"),
-                    _to_plain_number(operation_payload.get("quality_score")),
-                    _to_plain_number(operation_payload.get("confidence_score")),
-                    _to_plain_number(operation_payload.get("adaptive_position_size")),
-                    _to_plain_number(operation_payload.get("support_level")),
-                    _to_plain_number(operation_payload.get("resistance_level")),
-                    _to_plain_number(operation_payload.get("break_even_trigger")),
-                    operation_payload.get("break_even_allowed"),
-                    _to_plain_number(operation_payload.get("soft_stop_loss")),
-                    _to_plain_number(operation_payload.get("atr_pct")),
-                    Json(_normalize_for_json(operation_payload)),
-                ),
-            )
-            op_id = cur.fetchone()[0]
-
-        conn.commit()
-
-    return op_id
+                op_id = cur.fetchone()[0]
+    
+            conn.commit()
+    
+        return op_id
+    try:
+        return _write_operation()
+    except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+        init_db()
+        return _write_operation()
 
 
 
