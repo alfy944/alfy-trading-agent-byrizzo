@@ -210,6 +210,7 @@ class CryptoTechnicalAnalysisHL:
         longer_term = df_15m.tail(50).copy()
         longer_term["ema_20"] = self.calculate_ema(longer_term["close"], 20)
         longer_term["ema_50"] = self.calculate_ema(longer_term["close"], 50)
+        longer_term["ema_200"] = self.calculate_ema(df_15m["close"], 200).tail(len(longer_term))
         longer_term["atr_3"] = self.calculate_atr(
             longer_term["high"], longer_term["low"], longer_term["close"], 3
         )
@@ -224,6 +225,10 @@ class CryptoTechnicalAnalysisHL:
 
         avg_volume = longer_term["volume"].tail(20).mean()
         last_10_longer = longer_term.tail(10)
+
+        sr_window = df_15m.tail(48)
+        support_level = sr_window["low"].min()
+        resistance_level = sr_window["high"].max()
 
         # 3) PIVOT POINTS daily
         df_daily = self.fetch_ohlcv(coin, "1d", limit=2)
@@ -274,12 +279,18 @@ class CryptoTechnicalAnalysisHL:
             "longer_term_15m": {
                 "ema_20_current": current_longer["ema_20"],
                 "ema_50_current": current_longer["ema_50"],
+                "ema_200_current": current_longer["ema_200"],
                 "atr_3_current": current_longer["atr_3"],
                 "atr_14_current": current_longer["atr_14"],
                 "volume_current": current_longer["volume"],
                 "volume_average": avg_volume,
                 "macd_series": last_10_longer["macd"].tolist(),
                 "rsi_14_series": last_10_longer["rsi_14"].tolist(),
+            },
+            "support_resistance": {
+                "support": support_level,
+                "resistance": resistance_level,
+                "lookback": 48,
             },
         }
         return result
