@@ -5,6 +5,7 @@ from whalealert import format_whale_alerts_to_string
 from sentiment import get_sentiment
 from forecaster import get_crypto_forecasts
 from hyperliquid_trader import HyperLiquidTrader
+from trading_rules import evaluate_trade_signal
 import os
 import json
 import db_utils
@@ -61,6 +62,31 @@ try:
 
     print("L'agente sta decidendo la sua azione!")
     out = previsione_trading_agent(system_prompt)
+
+    evaluation = evaluate_trade_signal(out, indicators_json, forecasts_json, account_status=account_status)
+
+    if out.get("operation") == "open":
+        if not evaluation["allowed"]:
+            out["operation"] = "hold"
+            out["reason"] = f"{out.get('reason', '')} | Bloccato: {evaluation['block_reason']}"
+        else:
+            out["leverage"] = evaluation["adjusted_leverage"]
+            out["atr_at_entry"] = evaluation["atr_at_entry"]
+            out["trend_state"] = evaluation["trend_state"]
+            out["trailing_stop"] = evaluation["trailing_stop"]
+            out["forecast_strength"] = evaluation["forecast_strength"]
+            out["leverage_chosen"] = evaluation["adjusted_leverage"]
+            out["reason_for_entry"] = out.get("reason")
+            out["quality_score"] = evaluation["quality_score"]
+            out["confidence_score"] = evaluation["confidence_score"]
+            out["adaptive_position_size"] = evaluation["adaptive_position_size"]
+            out["support_level"] = evaluation["support_level"]
+            out["resistance_level"] = evaluation["resistance_level"]
+            out["break_even_trigger"] = evaluation["break_even_trigger"]
+            out["break_even_allowed"] = evaluation["break_even_allowed"]
+            out["soft_stop_loss"] = evaluation["soft_stop_loss"]
+            out["atr_pct"] = evaluation["atr_pct"]
+
     bot.execute_signal(out)
 
     op_id = db_utils.log_bot_operation(out, system_prompt=system_prompt, indicators=indicators_json, news_text=news_txt, sentiment=sentiment_json, forecasts=forecasts_json)
