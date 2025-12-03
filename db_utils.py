@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import math
 import os
 import sys
 from contextlib import contextmanager
@@ -385,13 +386,15 @@ def _to_plain_number(value: Any) -> Optional[float]:
         except Exception:
             pass
 
-    if isinstance(value, (int, float)):
-        return float(value)
-
     try:
-        return float(value)
+        num = float(value)
     except Exception:
         return None
+
+    if math.isnan(num) or math.isinf(num):
+        return None
+
+    return num
 
 
 def _normalize_for_json(value: Any) -> Any:
@@ -537,7 +540,7 @@ def log_account_status(account_status: Dict[str, Any]) -> int:
                     VALUES (%s, %s)
                     RETURNING id;
                     """,
-                    (balance, Json(account_status)),
+                    (balance, Json(_normalize_for_json(account_status))),
                 )
                 snapshot_id = cur.fetchone()[0]
 
@@ -575,7 +578,7 @@ def log_account_status(account_status: Dict[str, Any]) -> int:
                             mark_price,
                             pnl_usd,
                             leverage,
-                            Json(pos),
+                            Json(_normalize_for_json(pos)),
                         ),
                     )
 
@@ -616,7 +619,7 @@ def log_account_status(account_status: Dict[str, Any]) -> int:
                             exit_price,
                             pnl_usd,
                             leverage,
-                            Json(pos),
+                            Json(_normalize_for_json(pos)),
                         ),
                     )
 
@@ -974,7 +977,7 @@ def log_bot_operation(
                     operation_payload.get("break_even_allowed"),
                     _to_plain_number(operation_payload.get("soft_stop_loss")),
                     _to_plain_number(operation_payload.get("atr_pct")),
-                    Json(operation_payload),
+                    Json(_normalize_for_json(operation_payload)),
                 ),
             )
             op_id = cur.fetchone()[0]
