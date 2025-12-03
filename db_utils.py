@@ -183,6 +183,21 @@ CREATE TABLE IF NOT EXISTS bot_operations (
     direction           TEXT,
     target_portion_of_balance NUMERIC(10, 4),
     leverage            NUMERIC(10, 4),
+    reason_for_entry    TEXT,
+    atr_at_entry        NUMERIC(20, 8),
+    forecast_strength   NUMERIC(10, 4),
+    trend_state         TEXT,
+    leverage_chosen     NUMERIC(10, 4),
+    outcome             TEXT,
+    quality_score       NUMERIC(10, 4),
+    confidence_score    NUMERIC(10, 4),
+    adaptive_position_size NUMERIC(30, 10),
+    support_level       NUMERIC(30, 10),
+    resistance_level    NUMERIC(30, 10),
+    break_even_trigger  NUMERIC(30, 10),
+    break_even_allowed  BOOLEAN,
+    soft_stop_loss      NUMERIC(30, 10),
+    atr_pct             NUMERIC(10, 4),
     raw_payload         JSONB NOT NULL
 );
 
@@ -207,6 +222,22 @@ CREATE INDEX IF NOT EXISTS idx_errors_created_at
 MIGRATION_SQL = """
 ALTER TABLE bot_operations
     ADD COLUMN IF NOT EXISTS context_id BIGINT;
+ALTER TABLE bot_operations
+    ADD COLUMN IF NOT EXISTS reason_for_entry TEXT,
+    ADD COLUMN IF NOT EXISTS atr_at_entry NUMERIC(20, 8),
+    ADD COLUMN IF NOT EXISTS forecast_strength NUMERIC(10, 4),
+    ADD COLUMN IF NOT EXISTS trend_state TEXT,
+    ADD COLUMN IF NOT EXISTS leverage_chosen NUMERIC(10, 4),
+    ADD COLUMN IF NOT EXISTS outcome TEXT,
+    ADD COLUMN IF NOT EXISTS quality_score NUMERIC(10, 4),
+    ADD COLUMN IF NOT EXISTS confidence_score NUMERIC(10, 4),
+    ADD COLUMN IF NOT EXISTS adaptive_position_size NUMERIC(30, 10),
+    ADD COLUMN IF NOT EXISTS support_level NUMERIC(30, 10),
+    ADD COLUMN IF NOT EXISTS resistance_level NUMERIC(30, 10),
+    ADD COLUMN IF NOT EXISTS break_even_trigger NUMERIC(30, 10),
+    ADD COLUMN IF NOT EXISTS break_even_allowed BOOLEAN,
+    ADD COLUMN IF NOT EXISTS soft_stop_loss NUMERIC(30, 10),
+    ADD COLUMN IF NOT EXISTS atr_pct NUMERIC(10, 4);
 
 ALTER TABLE indicators_contexts
     ADD COLUMN IF NOT EXISTS ticker TEXT,
@@ -901,9 +932,24 @@ def log_bot_operation(
                     direction,
                     target_portion_of_balance,
                     leverage,
+                    reason_for_entry,
+                    atr_at_entry,
+                    forecast_strength,
+                    trend_state,
+                    leverage_chosen,
+                    outcome,
+                    quality_score,
+                    confidence_score,
+                    adaptive_position_size,
+                    support_level,
+                    resistance_level,
+                    break_even_trigger,
+                    break_even_allowed,
+                    soft_stop_loss,
+                    atr_pct,
                     raw_payload
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id;
                 """,
                 (
@@ -911,8 +957,23 @@ def log_bot_operation(
                     operation,
                     symbol,
                     direction,
-                    target_portion_of_balance,
-                    leverage,
+                    _to_plain_number(target_portion_of_balance),
+                    _to_plain_number(leverage),
+                    operation_payload.get("reason_for_entry") or operation_payload.get("reason"),
+                    _to_plain_number(operation_payload.get("atr_at_entry")),
+                    _to_plain_number(operation_payload.get("forecast_strength")),
+                    operation_payload.get("trend_state"),
+                    _to_plain_number(operation_payload.get("leverage_chosen")),
+                    operation_payload.get("outcome"),
+                    _to_plain_number(operation_payload.get("quality_score")),
+                    _to_plain_number(operation_payload.get("confidence_score")),
+                    _to_plain_number(operation_payload.get("adaptive_position_size")),
+                    _to_plain_number(operation_payload.get("support_level")),
+                    _to_plain_number(operation_payload.get("resistance_level")),
+                    _to_plain_number(operation_payload.get("break_even_trigger")),
+                    operation_payload.get("break_even_allowed"),
+                    _to_plain_number(operation_payload.get("soft_stop_loss")),
+                    _to_plain_number(operation_payload.get("atr_pct")),
                     Json(operation_payload),
                 ),
             )
