@@ -5,6 +5,7 @@ from whalealert import format_whale_alerts_to_string
 from sentiment import get_sentiment
 from forecaster import get_crypto_forecasts
 from hyperliquid_trader import HyperLiquidTrader
+from trading_rules import evaluate_trade_signal
 import os
 import json
 import db_utils
@@ -61,6 +62,22 @@ try:
 
     print("L'agente sta decidendo la sua azione!")
     out = previsione_trading_agent(system_prompt)
+
+    evaluation = evaluate_trade_signal(out, indicators_json, forecasts_json)
+
+    if out.get("operation") == "open":
+        if not evaluation["allowed"]:
+            out["operation"] = "hold"
+            out["reason"] = f"{out.get('reason', '')} | Bloccato: {evaluation['block_reason']}"
+        else:
+            out["leverage"] = evaluation["adjusted_leverage"]
+            out["atr_at_entry"] = evaluation["atr_at_entry"]
+            out["trend_state"] = evaluation["trend_state"]
+            out["trailing_stop"] = evaluation["trailing_stop"]
+            out["forecast_strength"] = evaluation["forecast_strength"]
+            out["leverage_chosen"] = evaluation["adjusted_leverage"]
+            out["reason_for_entry"] = out.get("reason")
+
     bot.execute_signal(out)
 
     op_id = db_utils.log_bot_operation(out, system_prompt=system_prompt, indicators=indicators_json, news_text=news_txt, sentiment=sentiment_json, forecasts=forecasts_json)
