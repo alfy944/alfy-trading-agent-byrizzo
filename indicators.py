@@ -255,6 +255,8 @@ class CryptoTechnicalAnalysisHL:
             
             "current": {
                 "price": current_15m["close"],
+                "high": current_15m["high"],
+                "low": current_15m["low"],
                 "ema20": current_15m["ema_20"],
                 "macd": current_15m["macd"],
                 "rsi_7": current_15m["rsi_7"],
