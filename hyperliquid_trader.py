@@ -1,4 +1,5 @@
 import json
+import random
 import time
 from decimal import Decimal, ROUND_DOWN
 from typing import Dict, Any, Callable, Optional
@@ -44,6 +45,9 @@ class HyperLiquidTrader:
         self.info = Info(base_url, skip_ws=skip_ws)
         self.exchange = Exchange(account, base_url, account_address=account_address)
 
+        # cache per gestire gracefully i rate limit
+        self._last_account_status: Optional[Dict[str, Any]] = None
+
         # cache meta per tick-size e min-size
         self.meta = self._retry_info_call(self.info.meta)
 
@@ -51,8 +55,8 @@ class HyperLiquidTrader:
         self,
         fn: Callable,
         *args: Any,
-        retries: int = 3,
-        backoff: float = 1.5,
+        retries: int = 5,
+        backoff: float = 1.8,
         **kwargs: Any,
     ) -> Optional[Any]:
         """Esegue una chiamata Info con backoff per mitigare errori 429."""
@@ -65,16 +69,19 @@ class HyperLiquidTrader:
                     raise
 
                 sleep_for = backoff**attempt
+                jitter = random.uniform(0.1, 0.3)
+                wait_time = sleep_for + jitter
                 print(
-                    f"⚠️ Rate limit Hyperliquid (429). Ritento tra {sleep_for:.1f}s..."
+                    f"⚠️ Rate limit Hyperliquid (429). Ritento tra {wait_time:.1f}s..."
                 )
-                time.sleep(sleep_for)
+                time.sleep(wait_time)
             except Exception:
                 if attempt == retries - 1:
                     raise
 
                 sleep_for = backoff**attempt
-                time.sleep(sleep_for)
+                jitter = random.uniform(0.1, 0.3)
+                time.sleep(sleep_for + jitter)
         return None
 
     def _to_hl_size(self, size_decimal: Decimal) -> str:
@@ -325,7 +332,18 @@ class HyperLiquidTrader:
     #                           STATO ACCOUNT
     # ----------------------------------------------------------------------
     def get_account_status(self) -> Dict[str, Any]:
-        data = self._retry_info_call(self.info.user_state, self.account_address)
+        try:
+            data = self._retry_info_call(self.info.user_state, self.account_address)
+        except ClientError as exc:
+            if exc.status_code == 429 and self._last_account_status is not None:
+                print("⚠️ Rate limit su user_state: ritorno ultimo snapshot in cache")
+                return self._last_account_status
+            if exc.status_code == 429:
+                raise RuntimeError(
+                    "Hyperliquid rate limit: impossibile recuperare stato account e nessuna cache disponibile"
+                ) from exc
+            raise
+
         balance = float(data["marginSummary"]["accountValue"])
 
         mids = self._retry_info_call(self.info.all_mids)
@@ -372,10 +390,13 @@ class HyperLiquidTrader:
                 "leverage": f"{leverage_value}x ({leverage_type})"
             })
 
-        return {
+        snapshot = {
             "balance_usd": balance,
             "open_positions": positions,
         }
+
+        self._last_account_status = snapshot
+        return snapshot
     
     # ----------------------------------------------------------------------
     #                           UTILITY DEBUG

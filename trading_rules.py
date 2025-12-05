@@ -126,6 +126,30 @@ def _forecast_strength(forecasts: Optional[Any], symbol: str) -> Optional[float]
     return None
 
 
+def _forecast_price(forecasts: Optional[Any], symbol: str) -> Optional[float]:
+    if not forecasts:
+        return None
+
+    items: List[Dict[str, Any]] = []
+    if isinstance(forecasts, list):
+        items = [x for x in forecasts if isinstance(x, dict)]
+    elif isinstance(forecasts, dict):
+        items = [forecasts]
+
+    for fc in items:
+        ticker = (fc.get("Ticker") or fc.get("ticker") or "").upper()
+        timeframe = fc.get("Timeframe") or fc.get("timeframe")
+        if ticker != symbol.upper():
+            continue
+        if timeframe and "15" not in str(timeframe):
+            continue
+        try:
+            return float(fc.get("Previsione") or fc.get("forecast_price"))
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
 def _trend_signal(price: Optional[float], ema_50: Optional[float], ema_200: Optional[float]) -> float:
     if price is None or ema_50 is None:
         return 0.0
@@ -211,6 +235,28 @@ def _quality_score(
         + (trend_component * 0.2)
     )
     return _clamp(weighted * 100.0, 0.0, 100.0)
+
+
+def _clamped_stop(price: float, stop: float, direction: Optional[str]) -> float:
+    if direction not in {"long", "short"}:
+        return stop
+
+    sl_pct = abs(price - stop) / price
+    min_pct = 0.003
+    max_pct = 0.02
+
+    if sl_pct < min_pct:
+        if direction == "long":
+            stop = price * (1 - min_pct)
+        else:
+            stop = price * (1 + min_pct)
+    elif sl_pct > max_pct:
+        if direction == "long":
+            stop = price * (1 - max_pct)
+        else:
+            stop = price * (1 + max_pct)
+
+    return stop
 
 
 def _adaptive_leverage_from_quality(base_leverage: int, quality_score: float) -> Tuple[int, Optional[str]]:
@@ -322,6 +368,9 @@ def evaluate_trade_signal(
     intraday = indicator.get("intraday") or {}
 
     price = float(current.get("price")) if current.get("price") is not None else None
+    current_high = float(current.get("high")) if current.get("high") is not None else None
+    current_low = float(current.get("low")) if current.get("low") is not None else None
+    ema_20_current = float(current.get("ema20")) if current.get("ema20") is not None else None
     atr_14 = float(longer.get("atr_14_current")) if longer.get("atr_14_current") is not None else None
     ema_50 = float(longer.get("ema_50_current")) if longer.get("ema_50_current") is not None else None
     ema_200 = float(longer.get("ema_200_current")) if longer.get("ema_200_current") is not None else None
@@ -336,10 +385,22 @@ def evaluate_trade_signal(
     if now.hour in MACRO_RISK_HOURS_UTC:
         block_reason = f"Finestra macro sensibile (UTC {now.hour})"
 
-    if atr_pct_value and atr_pct_value > VOLATILITY_THRESHOLD_PCT:
+    if block_reason is None and atr_pct_value and atr_pct_value > VOLATILITY_THRESHOLD_PCT:
         block_reason = (
             f"Volatilità eccessiva: ATR% {atr_pct_value:.2f} supera la soglia {VOLATILITY_THRESHOLD_PCT}%"
         )
+
+    if block_reason is None and atr_14 is not None and current_high is not None and current_low is not None:
+        candle_range = current_high - current_low
+        if candle_range > 1.5 * atr_14:
+            block_reason = (
+                f"Range candela {candle_range:.4f} superiore a 1.5x ATR ({atr_14:.4f}), evito ingresso su spike"
+            )
+
+    if block_reason is None and price is not None and ema_20_current is not None:
+        distance_from_ema20 = abs(price - ema_20_current) / price
+        if distance_from_ema20 > 0.01:
+            block_reason = "Prezzo troppo lontano da EMA20 (>1%), evito ingresso in FOMO"
 
     direction = signal.get("direction")
     major_trend_signal = _trend_signal(price, ema_50, ema_200)
@@ -365,8 +426,17 @@ def evaluate_trade_signal(
             block_reason = "Correlazione negativa: RSI BTC > 70, evito short su altri asset"
 
     forecast_strength = _forecast_strength(forecasts, signal.get("symbol", ""))
+    forecast_price = _forecast_price(forecasts, signal.get("symbol", ""))
     confidence_score = _confidence_score(forecast_strength, macd_value, major_trend_signal, rsi14_value)
     quality_score = _quality_score(forecast_strength, macd_value, rsi14_value, atr_pct_value, major_trend_signal)
+
+    if block_reason is None and forecast_price is not None and price is not None and atr_14 is not None:
+        expected_move = abs(forecast_price - price)
+        risk = atr_14 * TRAILING_ATR_MULTIPLIER
+        if expected_move < 2 * risk:
+            block_reason = (
+                f"Forecast ({forecast_price:.4f}) troppo vicino all'ingresso rispetto al rischio (move {expected_move:.4f} vs {2 * risk:.4f})"
+            )
 
     leverage, quality_block = _adaptive_leverage_from_quality(leverage, quality_score)
 
@@ -395,6 +465,9 @@ def evaluate_trade_signal(
             trailing_stop = price + distance
             if resistance_level:
                 trailing_stop = min(trailing_stop, float(resistance_level))
+
+        if trailing_stop is not None:
+            trailing_stop = _clamped_stop(price, trailing_stop, direction)
 
     adaptive_position_size = _adaptive_position_size(
         (account_status or {}).get("balance_usd"),
@@ -439,6 +512,34 @@ def evaluate_trade_signal(
 
     if quality_block and block_reason is None and quality_score < QUALITY_BLOCK_THRESHOLD:
         block_reason = quality_block
+
+    if block_reason is None:
+        confluence_score = 0
+        if price is not None and ema_50 is not None:
+            if (direction == "long" and price > ema_50) or (direction == "short" and price < ema_50):
+                confluence_score += 1
+        if macd_value is not None:
+            if (direction == "long" and macd_value > 0) or (direction == "short" and macd_value < 0):
+                confluence_score += 1
+        if rsi14_value is not None:
+            if direction == "long" and 50 < rsi14_value < 70:
+                confluence_score += 1
+            if direction == "short" and 30 < rsi14_value < 50:
+                confluence_score += 1
+        if forecast_price is not None and atr_14 is not None and price is not None:
+            if direction == "long" and forecast_price > price + (1.5 * atr_14):
+                confluence_score += 1
+            if direction == "short" and forecast_price < price - (1.5 * atr_14):
+                confluence_score += 1
+
+        if confluence_score < 3:
+            block_reason = "Confluenza insufficiente tra indicatori per validare la direzione"
+
+    if block_reason is None and forecast_price is not None and price is not None:
+        if direction == "long" and resistance_level is not None and forecast_price > float(resistance_level):
+            block_reason = "Target previsto oltre la resistenza più vicina, TP poco probabile"
+        if direction == "short" and support_level is not None and forecast_price < float(support_level):
+            block_reason = "Target previsto oltre il supporto più vicino, TP poco probabile"
 
     return {
         "allowed": block_reason is None,
